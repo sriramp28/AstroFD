@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Virtual env
+.venv/
+env/
+venv/
+
+# Numba cache
+__pycache__/
+.nbcache/
+
+# Jet outputs
+*.npz
+*.npy
+diagnostics.csv
+
+# Logs
+*.log
+
+# Mac
+.DS_Store
+
+# Results directory
+results/**
+!results/.gitkeep
