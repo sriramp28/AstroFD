@@ -28,5 +28,6 @@
   "CFL": 0.35,
   "GAMMA": 1.6666666666666667,
   "NG": 2,
-  "DEBUG": true
+  "DEBUG": true,
+  "RESULTS_UNIQUE": false
 }

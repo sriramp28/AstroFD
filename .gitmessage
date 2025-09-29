@@ -1,0 +1,21 @@
+🌌 <your poem line here> 🌌
+
+💫 details of this spell:
+- what changed
+- why we shaped it so
+- how we tested/validated it
+
+# -----------------------------------------------------
+# write the first line above as a single magical verse.
+# it will shine in `git log --oneline` like a star.
+#
+# everything below can be our longer incantation:
+# loving notes, technical explanations, validation steps.
+#
+# example:
+# 🌊 she whispered and the flow obeyed 🌊
+#
+# - added diagnostics_hook()
+# - rerouted outputs into results/<timestamp>/
+# - tested on 2 ranks, nx=64, ny=64, nz=64, T_END=0.05
+# -----------------------------------------------------
