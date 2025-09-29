@@ -12,82 +12,8 @@ import numpy as np
 from mpi4py import MPI
 import numba as nb
 
-# =======================
-# Settings (config + CLI)
-# =======================
-import argparse, json, os
-
-def load_settings():
-    # -------- defaults (mirror hard-coded version) --------
-    defaults = dict(
-        # grid & numerics
-        NX=128, NY=96, NZ=96, Lx=1.0, Ly=1.0, Lz=1.0,
-        T_END=0.25, OUT_EVERY=50, PRINT_EVERY=10,
-        NG=2, CFL=0.35, GAMMA=5.0/3.0,
-        # jet physics
-        JET_RADIUS=0.12,
-        JET_CENTER=None,      # default later → [0.0, 0.5*Ly, 0.5*Lz]
-        GAMMA_JET=6.0, ETA_RHO=0.05, P_EQ=1.0e-2,
-        SHEAR_THICK=0.02,
-        NOZZLE_TURB=True, TURB_VAMP=0.02, TURB_PAMP=0.00,
-        # ambient
-        RHO_AMB=1.0, P_AMB=None,  # default later → P_EQ
-        VX_AMB=0.0, VY_AMB=0.0, VZ_AMB=0.0,
-        # debug
-        DEBUG=False, ASSERTS=False, CHECK_NAN_EVERY=0   # ASSERTS extra checks; 0→off
-    )
-
-    ap = argparse.ArgumentParser(description="3D SRHD jet (MUSCL + HLLE + MPI)")
-    ap.add_argument("--config", type=str, help="path to JSON config")
-    ap.add_argument("--debug", action="store_true", help="verbose logging + JIT warm-up")
-    # quick overrides
-    ap.add_argument("--nx", type=int); ap.add_argument("--ny", type=int); ap.add_argument("--nz", type=int)
-    ap.add_argument("--t-end", type=float); ap.add_argument("--out-every", type=int)
-    ap.add_argument("--print-every", type=int)
-    args = ap.parse_args()
-
-    cfg = {}
-    if args.config and os.path.exists(args.config):
-        try:
-            import json5
-            with open(args.config, "r") as f:
-                cfg = json5.load(f)
-        except Exception:
-            with open(args.config, "r") as f:
-                cfg = json.load(f)
-    s = {**defaults, **cfg}
-    if args.debug: s["DEBUG"] = True
-    if args.nx is not None: s["NX"] = args.nx
-    if args.ny is not None: s["NY"] = args.ny
-    if args.nz is not None: s["NZ"] = args.nz
-    if args.t_end is not None: s["T_END"] = args.t_end
-    if args.out_every is not None: s["OUT_EVERY"] = args.out_every
-    if args.print_every is not None: s["PRINT_EVERY"] = args.print_every
-
-    # dependent defaults
-    if s["P_AMB"] is None:
-        s["P_AMB"] = s["P_EQ"]
-    if s["JET_CENTER"] is None:
-        s["JET_CENTER"] = [0.0, 0.5*s["Ly"], 0.5*s["Lz"]]
-    else:
-        jc = s["JET_CENTER"]
-        if isinstance(jc, dict):
-            y = jc.get("y", 0.5*s["Ly"]); z = jc.get("z", 0.5*s["Lz"])
-            s["JET_CENTER"] = [0.0, float(y), float(z)]
-        else:
-            if not (isinstance(jc, (list, tuple)) and len(jc) == 3):
-                raise ValueError("JET_CENTER must be [x,y,z] or {'y':..., 'z':...}")
-            s["JET_CENTER"] = [float(jc[0]), float(jc[1]), float(jc[2])]
-
-    # light validation
-    if s["NG"] < 2:
-        raise ValueError("NG must be >= 2 for MUSCL (uses i±2, j±2, k±2).")
-    if not (0.0 < s["CFL"] <= 0.9):
-        raise ValueError("CFL should be in (0, 0.9].")
-    if min(s["NX"], s["NY"], s["NZ"]) < 8:
-        raise ValueError("NX, NY, NZ must be ≥ 8.")
-
-    return s
+from utils.settings import load_settings
+from utils.io_utils import make_run_dir
 
 settings = load_settings()
 
@@ -118,40 +44,6 @@ ASSERTS       = settings["ASSERTS"]
 CHECK_NAN_EVERY = settings["CHECK_NAN_EVERY"]
 
 SMALL = 1e-12
-
-"""
-# ------------------------
-# Globals / Params
-# ------------------------
-GAMMA = 5.0/3.0
-CFL   = 0.35
-SMALL = 1e-12
-NG    = 2          # ghost layers (MUSCL requires 2)
-
-# Domain / jet config
-Lx, Ly, Lz = 1.0, 1.0, 1.0
-NX, NY, NZ = 128, 96, 96
-T_END      = 0.25
-OUT_EVERY  = 50
-
-# Jet parameters
-JET_RADIUS  = 0.12
-JET_CENTER  = (0.0, 0.5*Ly, 0.5*Lz)
-GAMMA_JET   = 6.0
-ETA_RHO     = 0.05
-P_EQ        = 1.0e-2
-SHEAR_THICK = 0.02
-NOZZLE_TURB = True
-TURB_VAMP   = 0.02
-TURB_PAMP   = 0.00
-
-# Ambient
-RHO_AMB = 1.0
-P_AMB   = P_EQ
-VX_AMB  = 0.0
-VY_AMB  = 0.0
-VZ_AMB  = 0.0
-"""
 
 # ------------------------
 # SRHD helpers (Numba)
@@ -772,7 +664,7 @@ def step_ssprk2(pr, dx, dy, dz, dt):
 # ------------------------
 # Diagnostics: max Lorentz factor (global) and inlet energy flux (rank 0)
 # ------------------------
-def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, step, t, dt, amax):
+def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, step, t, dt, amax, run_dir):
     """
     pr has ghosts. We'll:
       - compute local max Lorentz factor across interior cells,
@@ -812,7 +704,7 @@ def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, st
 
     # write diagnostics on rank 0
     if rank == 0:
-        fn = "diagnostics.csv"
+        fn = os.path.join(run_dir, "diagnostics.csv")
         header = False
         if not os.path.exists(fn):
             header = True
@@ -830,6 +722,11 @@ def main():
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
+
+    # --- create output dir ---
+    RUN_DIR = make_run_dir(base="results", unique=settings.get("RESULTS_UNIQUE", False))
+    if rank == 0:
+        print(f"[startup] run directory: {RUN_DIR}", flush=True)
 
     # --- startup banner ---
     if rank == 0:
@@ -913,7 +810,7 @@ def main():
 
         # output + diagnostics
         if step % OUT_EVERY == 0 or abs(t - T_END) < 1e-14:
-            fname = f"jet3d_rank{rank:04d}_step{step:06d}.npz"
+            fname = os.path.join(RUN_DIR, f"jet3d_rank{rank:04d}_step{step:06d}.npz")
             np.savez(
                 fname,
                 rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
