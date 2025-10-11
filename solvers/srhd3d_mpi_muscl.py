@@ -14,6 +14,7 @@ import numba as nb
 
 from utils.settings import load_settings
 from utils.io_utils import make_run_dir
+from utils import diagnostics
 
 settings = load_settings()
 
@@ -38,6 +39,8 @@ P_AMB         = settings["P_AMB"]
 VX_AMB        = settings["VX_AMB"]
 VY_AMB        = settings["VY_AMB"]
 VZ_AMB        = settings["VZ_AMB"]
+P_MAX         = settings["P_MAX"]
+V_MAX         = settings["V_MAX"]
 
 DEBUG         = settings["DEBUG"]
 ASSERTS       = settings["ASSERTS"]
@@ -64,41 +67,74 @@ def prim_to_cons(rho, vx, vy, vz, p, gamma=GAMMA):
 
 @nb.njit(fastmath=True)
 def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
-    E = tau + D
+    E  = tau + D
     S2 = Sx*Sx + Sy*Sy + Sz*Sz
-    p = (gamma-1.0)*(E - D)
+
+    # initial guess: ideal-gas-like
+    p = (gamma - 1.0) * (E - D)
     if p < SMALL: p = SMALL
+    if p > P_MAX: p = P_MAX
+
+    ok = False
     for _ in range(60):
-        Wm = E + p
+        Wm = E + p                      # Wm = E + p  (our unknown enters here)
         v2 = S2 / (Wm*Wm + SMALL)
-        if v2 >= 1.0: v2 = 1.0 - 1e-14
-        W  = 1.0/np.sqrt(1.0 - v2)
-        rho= D/np.maximum(W, SMALL)
-        h  = 1.0 + gamma/(gamma-1.0)*p/np.maximum(rho, SMALL)
-        w  = rho*h
-        f  = Wm - w*W*W
+        if v2 >= V_MAX*V_MAX:
+            v2 = V_MAX*V_MAX - 1e-14
+        W  = 1.0 / np.sqrt(1.0 - v2)
+        rho= D / max(W, SMALL)
+        h  = 1.0 + gamma/(gamma-1.0) * p / max(rho, SMALL)
+        w  = rho * h
+        # residual: Wm - w W^2 = 0
+        f  = Wm - w * W * W
+
+        # simple, safe slope; we damp anyway
         dfdp = 1.0
-        dp = -f/dfdp
+        dp = -f / dfdp
+
+        # damp update and clamp into [P_MIN, P_MAX]
         if dp >  0.5*p: dp =  0.5*p
         if dp < -0.5*p: dp = -0.5*p
         p_new = p + dp
         if p_new < SMALL: p_new = SMALL
-        if abs(dp) < 1e-12*max(1.0, p_new):
-            p = p_new; break
+        if p_new > P_MAX: p_new = P_MAX
+
+        if np.abs(dp) < 1e-12 * max(1.0, p_new):
+            p = p_new
+            ok = True
+            break
         p = p_new
+
+    if not ok:
+        # fallback: energy-based clamp (very robust)
+        p = (gamma - 1.0) * (E - D)
+        if p < SMALL: p = SMALL
+        if p > P_MAX: p = P_MAX
+
+    # recover velocities with cap
     Wm = E + p
-    vx = Sx/np.maximum(Wm, SMALL)
-    vy = Sy/np.maximum(Wm, SMALL)
-    vz = Sz/np.maximum(Wm, SMALL)
+    vx = Sx / max(Wm, SMALL)
+    vy = Sy / max(Wm, SMALL)
+    vz = Sz / max(Wm, SMALL)
+
+    # cap velocity to V_MAX
     v2 = vx*vx + vy*vy + vz*vz
-    if v2 >= 1.0:
-        fac = (1.0 - 1e-14)/np.sqrt(v2)
+    vmax2 = V_MAX*V_MAX
+    if v2 >= vmax2:
+        fac = V_MAX / np.sqrt(v2 + 1e-32)
         vx *= fac; vy *= fac; vz *= fac
+
+    # recompute rho with final Γ
     v2 = vx*vx + vy*vy + vz*vz
-    W  = 1.0/np.sqrt(1.0 - v2)
-    rho= D/np.maximum(W, SMALL)
+    if v2 >= 1.0: v2 = 1.0 - 1e-14
+    W  = 1.0 / np.sqrt(1.0 - v2)
+    rho= D / max(W, SMALL)
     if rho < SMALL: rho = SMALL
-    if p   < SMALL: p   = SMALL
+
+    # final pressure cap (in case)
+    if p < SMALL: p = SMALL
+    if p > P_MAX: p = P_MAX
+
     return rho, vx, vy, vz, p
 
 @nb.njit(fastmath=True)
@@ -168,9 +204,13 @@ def mc_lim(dqL, dqR):
 def floor_prim(rho, vx, vy, vz, p):
     if rho < SMALL: rho = SMALL
     if p   < SMALL: p   = SMALL
+    # caps
+    if p   > P_MAX: p   = P_MAX
+    # limit |v| < V_MAX
     v2 = vx*vx + vy*vy + vz*vz
-    if v2 >= 1.0:
-        fac = (1.0 - 1e-14)/np.sqrt(v2)
+    vmax2 = V_MAX*V_MAX
+    if v2 >= vmax2:
+        fac = V_MAX / np.sqrt(v2 + 1e-32)
         vx *= fac; vy *= fac; vz *= fac
     return rho, vx, vy, vz, p
 
@@ -701,6 +741,10 @@ def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, st
 
     # gather inlet_flux global (rank 0 only needs it)
     total_inlet_flux = comm.allreduce(inlet_flux, op=MPI.SUM)
+    # signed flux (convention: outward normal = +x)
+    signed_flux = total_inlet_flux
+    # inflow-as-positive
+    abs_flux    = abs(total_inlet_flux)
 
     # write diagnostics on rank 0
     if rank == 0:
@@ -710,10 +754,11 @@ def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, st
             header = True
         with open(fn, "a") as f:
             if header:
-                f.write("step,time,dt,amax,maxGamma,inletEnergyFlux\n")
-            f.write(f"{step},{t:.8e},{dt:.8e},{amax:.6e},{global_maxG:.6e},{total_inlet_flux:.6e}\n")
+                f.write("step,time,dt,amax,maxGamma,inletFlux_signed,inletFlux_abs\n")
+            f.write(f"{step},{t:.8e},{dt:.8e},{amax:.6e},{global_maxG:.6e},"
+                    f"{signed_flux:.6e},{abs_flux:.6e}\n")
 
-    return global_maxG, total_inlet_flux
+    return global_maxG, signed_flux, abs_flux
 
 # ------------------------
 # Main
@@ -737,6 +782,10 @@ def main():
                 print(f"[startup] numba threads={nbconfig.NUMBA_NUM_THREADS}", flush=True)
             except Exception:
                 pass
+        print("[startup] params:"
+              f" P_EQ={P_EQ:.6g}, P_AMB={P_AMB:.6g}, RHO_AMB={RHO_AMB:.6g},"
+              f" GAMMA_JET={GAMMA_JET:.6g}, ETA_RHO={ETA_RHO:.6g},"
+              f" JET_RADIUS={JET_RADIUS:.3f}, NOZZLE_TURB={NOZZLE_TURB}", flush=True)
 
     # domain decomposition in x
     nx_loc, x0, counts, offs = decompose_x(NX, comm)
@@ -820,14 +869,21 @@ def main():
             if rank == 0:
                 print(f"[io] wrote {fname}", flush=True)
 
-            global_maxG, inlet_flux = compute_diagnostics_and_write(
+            global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
                 pr, dx, dy, dz, offs[rank], counts, comm, rank,
-                step, t, dt, amax
+                step, t, dt, amax, RUN_DIR,
+                prim_to_cons, NG
             )
             if rank == 0:
                 print(f"[diag] step={step} maxGamma={global_maxG:.3f} "
-                      f"inletFlux={inlet_flux:.6e}", flush=True)
+                      f"inletFlux_signed={flux_signed:.3e} inletFlux_abs={flux_abs:.3e}",
+                      flush=True)
 
+            # centerline diagnostics (write only; no return so no need to assign to any object)
+            diagnostics.compute_centerline_and_write(
+                pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                step, t, RUN_DIR, V_MAX, NG
+            )
     if rank == 0:
         print("Done.", flush=True)
 

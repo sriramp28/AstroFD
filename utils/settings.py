@@ -25,6 +25,8 @@ def load_settings():
         # ambient
         RHO_AMB=1.0, P_AMB=None,    # P_AMB defaults to P_EQ
         VX_AMB=0.0, VY_AMB=0.0, VZ_AMB=0.0,
+        P_MAX=1.0,
+        V_MAX=0.999,
         # results
         RESULTS_UNIQUE=False,       # False → results/YYYY-MM-DD/, True → results/YYYY-MM-DD/HH-MM-SS/
         # debug

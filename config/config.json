@@ -24,6 +24,8 @@
   "VX_AMB": 0.0,
   "VY_AMB": 0.0,
   "VZ_AMB": 0.0,
+  "P_MAX": 2.0,                    // cap pressure for safety during early tests
+  "V_MAX": 0.9999,                 // cap speed to keep Γ finite
 
   "CFL": 0.35,
   "GAMMA": 1.6666666666666667,
