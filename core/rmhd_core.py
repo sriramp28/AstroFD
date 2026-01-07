@@ -13,11 +13,13 @@ LIMITER_ID = 0  # 0=mc, 1=minmod, 2=vanleer
 RECON_ID = 0    # 0=muscl, 1=ppm, 2=weno
 RIEMANN_ID = 0  # 0=hlle, 1=hlld-like
 SMALL = 1e-12
-N_TRACERS = 0
-TRACER_OFFSET = 9
+RESISTIVE_ENABLED = False
+RESISTIVITY = 0.0
+N_PASSIVE = 0
+PASSIVE_OFFSET = 9
 
 def configure(params):
-    global GAMMA, P_MAX, V_MAX, GLM_CH, GLM_CP, LIMITER_ID, RECON_ID, RIEMANN_ID, N_TRACERS, TRACER_OFFSET
+    global GAMMA, P_MAX, V_MAX, GLM_CH, GLM_CP, LIMITER_ID, RECON_ID, RIEMANN_ID, N_PASSIVE, PASSIVE_OFFSET, RESISTIVE_ENABLED, RESISTIVITY
     GAMMA = float(params.get("GAMMA", GAMMA))
     P_MAX = float(params.get("P_MAX", P_MAX))
     V_MAX = float(params.get("V_MAX", V_MAX))
@@ -42,8 +44,10 @@ def configure(params):
         RIEMANN_ID = 2
     else:
         RIEMANN_ID = 1 if riemann == "hlld" else 0
-    N_TRACERS = int(params.get("N_TRACERS", N_TRACERS))
-    TRACER_OFFSET = int(params.get("TRACER_OFFSET", TRACER_OFFSET))
+    RESISTIVE_ENABLED = bool(params.get("RESISTIVE_ENABLED", RESISTIVE_ENABLED))
+    RESISTIVITY = float(params.get("RESISTIVITY", RESISTIVITY))
+    N_PASSIVE = int(params.get("N_PASSIVE", N_PASSIVE))
+    PASSIVE_OFFSET = int(params.get("PASSIVE_OFFSET", PASSIVE_OFFSET))
 
 @nb.njit(fastmath=True)
 def minmod(a, b):
@@ -732,7 +736,7 @@ def riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
 
 @nb.njit(parallel=True, fastmath=True)
 def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
-    rhs = np.zeros((9 + N_TRACERS, nx, ny, nz))
+    rhs = np.zeros((9 + N_PASSIVE, nx, ny, nz))
     i0, i1 = 2, nx-2
     j0, j1 = 2, ny-2
     k0, k1 = 2, nz-2
@@ -814,17 +818,17 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FxL[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    FxL_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FxL_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i-3,j,k], pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k])
                         tRq = weno5_right(pr[idx,i+2,j,k], pr[idx,i+1,j,k], pr[idx,i,j,k], pr[idx,i-1,j,k], pr[idx,i-2,j,k])
                         FxL_tr[t] = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
-                if N_TRACERS > 0:
-                    FxL_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FxL_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_im1, r_im1 = ppm_reconstruct(pr[idx,i-3,j,k], pr[idx,i-2,j,k], pr[idx,i-1,j,k],
                                                        pr[idx,i-0,j,k], pr[idx,i+1,j,k])
                         l_i, r_i = ppm_reconstruct(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k],
@@ -832,10 +836,10 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tLq = r_im1
                         tRq = l_i
                         FxL_tr[t] = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
-                if N_TRACERS > 0:
-                    FxL_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FxL_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i-1, j, k] - pr[idx, i-2, j, k]
                         dqR = pr[idx, i,   j, k] - pr[idx, i-1, j, k]
                         slL_t = limiter(dqL, dqR)
@@ -892,16 +896,16 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FxR[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k], pr[idx,i+2,j,k])
                         tRq = weno5_right(pr[idx,i+3,j,k], pr[idx,i+2,j,k], pr[idx,i+1,j,k], pr[idx,i,j,k], pr[idx,i-1,j,k])
                         FxR_tr = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FxR_tr - FxL_tr[t]) / dx
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_i, r_i = ppm_reconstruct(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k],
                                                    pr[idx,i+1,j,k], pr[idx,i+2,j,k])
                         l_ip1, r_ip1 = ppm_reconstruct(pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k],
@@ -910,9 +914,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tRq = l_ip1
                         FxR_tr = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FxR_tr - FxL_tr[t]) / dx
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i+1, j, k] - pr[idx, i,   j, k]
                         dqR = pr[idx, i+2, j, k] - pr[idx, i+1, j, k]
                         slRp1_t = limiter(dqL, dqR)
@@ -975,17 +979,17 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FyD[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    FyD_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FyD_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i,j-3,k], pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k])
                         tRq = weno5_right(pr[idx,i,j+2,k], pr[idx,i,j+1,k], pr[idx,i,j,k], pr[idx,i,j-1,k], pr[idx,i,j-2,k])
                         FyD_tr[t] = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, sL, sR)
-                if N_TRACERS > 0:
-                    FyD_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FyD_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_jm1, r_jm1 = ppm_reconstruct(pr[idx,i,j-3,k], pr[idx,i,j-2,k], pr[idx,i,j-1,k],
                                                        pr[idx,i,j-0,k], pr[idx,i,j+1,k])
                         l_j, r_j = ppm_reconstruct(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k],
@@ -993,10 +997,10 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tLq = r_jm1
                         tRq = l_j
                         FyD_tr[t] = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, sL, sR)
-                if N_TRACERS > 0:
-                    FyD_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FyD_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i, j-1, k] - pr[idx, i, j-2, k]
                         dqR = pr[idx, i, j,   k] - pr[idx, i, j-1, k]
                         slL_t = limiter(dqL, dqR)
@@ -1052,16 +1056,16 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FyU[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k], pr[idx,i,j+2,k])
                         tRq = weno5_right(pr[idx,i,j+3,k], pr[idx,i,j+2,k], pr[idx,i,j+1,k], pr[idx,i,j,k], pr[idx,i,j-1,k])
                         FyU_tr = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FyU_tr - FyD_tr[t]) / dy
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_j, r_j = ppm_reconstruct(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k],
                                                    pr[idx,i,j+1,k], pr[idx,i,j+2,k])
                         l_jp1, r_jp1 = ppm_reconstruct(pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k],
@@ -1070,9 +1074,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tRq = l_jp1
                         FyU_tr = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FyU_tr - FyD_tr[t]) / dy
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i, j+1, k] - pr[idx, i, j,   k]
                         dqR = pr[idx, i, j+2, k] - pr[idx, i, j+1, k]
                         slRp1_t = limiter(dqL, dqR)
@@ -1135,17 +1139,17 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FzB[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    FzB_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FzB_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i,j,k-3], pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1])
                         tRq = weno5_right(pr[idx,i,j,k+2], pr[idx,i,j,k+1], pr[idx,i,j,k], pr[idx,i,j,k-1], pr[idx,i,j,k-2])
                         FzB_tr[t] = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL, sR)
-                if N_TRACERS > 0:
-                    FzB_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FzB_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_km1, r_km1 = ppm_reconstruct(pr[idx,i,j,k-3], pr[idx,i,j,k-2], pr[idx,i,j,k-1],
                                                        pr[idx,i,j,k-0], pr[idx,i,j,k+1])
                         l_k, r_k = ppm_reconstruct(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k],
@@ -1153,10 +1157,10 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tLq = r_km1
                         tRq = l_k
                         FzB_tr[t] = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL, sR)
-                if N_TRACERS > 0:
-                    FzB_tr = np.empty(N_TRACERS)
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    FzB_tr = np.empty(N_PASSIVE)
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i, j, k-1] - pr[idx, i, j, k-2]
                         dqR = pr[idx, i, j, k  ] - pr[idx, i, j, k-1]
                         slL_t = limiter(dqL, dqR)
@@ -1212,16 +1216,16 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                     else:
                         Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
                     FzF[5:9] = Fm[5:9]
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         tLq = weno5_left(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1], pr[idx,i,j,k+2])
                         tRq = weno5_right(pr[idx,i,j,k+3], pr[idx,i,j,k+2], pr[idx,i,j,k+1], pr[idx,i,j,k], pr[idx,i,j,k-1])
                         FzF_tr = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         l_k, r_k = ppm_reconstruct(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k],
                                                    pr[idx,i,j,k+1], pr[idx,i,j,k+2])
                         l_kp1, r_kp1 = ppm_reconstruct(pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1],
@@ -1230,9 +1234,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         tRq = l_kp1
                         FzF_tr = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL, sR)
                         rhs[9 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
-                if N_TRACERS > 0:
-                    for t in range(N_TRACERS):
-                        idx = TRACER_OFFSET + t
+                if N_PASSIVE > 0:
+                    for t in range(N_PASSIVE):
+                        idx = PASSIVE_OFFSET + t
                         dqL = pr[idx, i, j, k+1] - pr[idx, i, j, k  ]
                         dqR = pr[idx, i, j, k+2] - pr[idx, i, j, k+1]
                         slRp1_t = limiter(dqL, dqR)
@@ -1245,15 +1249,25 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                         rhs[9 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
 
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
-
                 # GLM damping source term
                 rhs[8, i, j, k] -= GLM_CP*GLM_CP * pr[8, i, j, k]
+                if RESISTIVE_ENABLED and RESISTIVITY > 0.0:
+                    invdx2 = 1.0 / (dx*dx + SMALL)
+                    invdy2 = 1.0 / (dy*dy + SMALL)
+                    invdz2 = 1.0 / (dz*dz + SMALL)
+                    for comp in range(5, 8):
+                        lap = (
+                            (pr[comp, i+1, j, k] - 2.0*pr[comp, i, j, k] + pr[comp, i-1, j, k]) * invdx2 +
+                            (pr[comp, i, j+1, k] - 2.0*pr[comp, i, j, k] + pr[comp, i, j-1, k]) * invdy2 +
+                            (pr[comp, i, j, k+1] - 2.0*pr[comp, i, j, k] + pr[comp, i, j, k-1]) * invdz2
+                        )
+                        rhs[comp, i, j, k] += RESISTIVITY * lap
 
     return rhs
 
 @nb.njit(parallel=True, fastmath=True)
 def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
-    rhs = np.zeros((9 + N_TRACERS, nx, ny, nz))
+    rhs = np.zeros((9 + N_PASSIVE, nx, ny, nz))
     i0, i1 = 3, nx-3
     j0, j1 = 3, ny-3
     k0, k1 = 3, nz-3
@@ -1386,12 +1400,34 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
 
                 rhs[8, i, j, k] -= GLM_CP*GLM_CP * pr[8, i, j, k]
+                if RESISTIVE_ENABLED and RESISTIVITY > 0.0:
+                    invdx2 = 1.0 / (dx*dx + SMALL)
+                    invdy2 = 1.0 / (dy*dy + SMALL)
+                    invdz2 = 1.0 / (dz*dz + SMALL)
+                    for comp in range(5, 8):
+                        lap = (
+                            (pr[comp, i+1, j, k] - 2.0*pr[comp, i, j, k] + pr[comp, i-1, j, k]) * invdx2 +
+                            (pr[comp, i, j+1, k] - 2.0*pr[comp, i, j, k] + pr[comp, i, j-1, k]) * invdy2 +
+                            (pr[comp, i, j, k+1] - 2.0*pr[comp, i, j, k] + pr[comp, i, j, k-1]) * invdz2
+                        )
+                        rhs[comp, i, j, k] += RESISTIVITY * lap
+                if RESISTIVE_ENABLED and RESISTIVITY > 0.0:
+                    invdx2 = 1.0 / (dx*dx + SMALL)
+                    invdy2 = 1.0 / (dy*dy + SMALL)
+                    invdz2 = 1.0 / (dz*dz + SMALL)
+                    for comp in range(5, 8):
+                        lap = (
+                            (pr[comp, i+1, j, k] - 2.0*pr[comp, i, j, k] + pr[comp, i-1, j, k]) * invdx2 +
+                            (pr[comp, i, j+1, k] - 2.0*pr[comp, i, j, k] + pr[comp, i, j-1, k]) * invdy2 +
+                            (pr[comp, i, j, k+1] - 2.0*pr[comp, i, j, k] + pr[comp, i, j, k-1]) * invdz2
+                        )
+                        rhs[comp, i, j, k] += RESISTIVITY * lap
 
     return rhs
 
 @nb.njit(parallel=True, fastmath=True)
 def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
-    rhs = np.zeros((9 + N_TRACERS, nx, ny, nz))
+    rhs = np.zeros((9 + N_PASSIVE, nx, ny, nz))
     i0, i1 = 3, nx-3
     j0, j1 = 3, ny-3
     k0, k1 = 3, nz-3
@@ -1511,7 +1547,7 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
 
 def step_ssprk2(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    nt = N_TRACERS
+    npass = N_PASSIVE
     U0 = np.zeros((9, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
@@ -1535,8 +1571,8 @@ def step_ssprk2(pr, dx, dy, dz, dt):
                 pr1[0:9,i,j,k] = cons_to_prim_rmhd(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k],
                                                   U1[3,i,j,k], U1[4,i,j,k], U1[5,i,j,k],
                                                   U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k])
-    if nt > 0:
-        pr1[TRACER_OFFSET:TRACER_OFFSET+nt] = pr[TRACER_OFFSET:TRACER_OFFSET+nt] + dt*rhs1[9:9+nt]
+    if npass > 0:
+        pr1[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] = pr[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] + dt*rhs1[9:9+npass]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1553,15 +1589,15 @@ def step_ssprk2(pr, dx, dy, dz, dt):
                 out[0:9,i,j,k] = cons_to_prim_rmhd(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k],
                                                    U2[3,i,j,k], U2[4,i,j,k], U2[5,i,j,k],
                                                    U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k])
-    if nt > 0:
-        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
-        t1 = pr1[TRACER_OFFSET:TRACER_OFFSET+nt]
-        out[TRACER_OFFSET:TRACER_OFFSET+nt] = 0.5*(t0 + t1 + dt*rhs2[9:9+nt])
+    if npass > 0:
+        t0 = pr[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        t1 = pr1[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        out[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] = 0.5*(t0 + t1 + dt*rhs2[9:9+npass])
     return out
 
 def step_ssprk3(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    nt = N_TRACERS
+    npass = N_PASSIVE
     U0 = np.zeros((9, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
@@ -1585,8 +1621,8 @@ def step_ssprk3(pr, dx, dy, dz, dt):
                 pr1[0:9,i,j,k] = cons_to_prim_rmhd(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k],
                                                   U1[3,i,j,k], U1[4,i,j,k], U1[5,i,j,k],
                                                   U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k])
-    if nt > 0:
-        pr1[TRACER_OFFSET:TRACER_OFFSET+nt] = pr[TRACER_OFFSET:TRACER_OFFSET+nt] + dt*rhs1[9:9+nt]
+    if npass > 0:
+        pr1[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] = pr[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] + dt*rhs1[9:9+npass]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1603,10 +1639,10 @@ def step_ssprk3(pr, dx, dy, dz, dt):
                 pr2[0:9,i,j,k] = cons_to_prim_rmhd(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k],
                                                   U2[3,i,j,k], U2[4,i,j,k], U2[5,i,j,k],
                                                   U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k])
-    if nt > 0:
-        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
-        t1 = pr1[TRACER_OFFSET:TRACER_OFFSET+nt]
-        pr2[TRACER_OFFSET:TRACER_OFFSET+nt] = 0.75*t0 + 0.25*(t1 + dt*rhs2[9:9+nt])
+    if npass > 0:
+        t0 = pr[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        t1 = pr1[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        pr2[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] = 0.75*t0 + 0.25*(t1 + dt*rhs2[9:9+npass])
 
     if RECON_ID == 1:
         rhs3 = compute_rhs_ppm(pr2, nx, ny, nz, dx, dy, dz)
@@ -1623,8 +1659,8 @@ def step_ssprk3(pr, dx, dy, dz, dt):
                 out[0:9,i,j,k] = cons_to_prim_rmhd(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k],
                                                   U3[3,i,j,k], U3[4,i,j,k], U3[5,i,j,k],
                                                   U3[6,i,j,k], U3[7,i,j,k], U3[8,i,j,k])
-    if nt > 0:
-        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
-        t2 = pr2[TRACER_OFFSET:TRACER_OFFSET+nt]
-        out[TRACER_OFFSET:TRACER_OFFSET+nt] = (1.0/3.0)*t0 + (2.0/3.0)*(t2 + dt*rhs3[9:9+nt])
+    if npass > 0:
+        t0 = pr[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        t2 = pr2[PASSIVE_OFFSET:PASSIVE_OFFSET+npass]
+        out[PASSIVE_OFFSET:PASSIVE_OFFSET+npass] = (1.0/3.0)*t0 + (2.0/3.0)*(t2 + dt*rhs3[9:9+npass])
     return out

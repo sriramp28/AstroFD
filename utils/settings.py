@@ -62,6 +62,20 @@ def load_settings():
         TRACER_NAMES=None,
         TRACER_NOZZLE_VALUES=None,
         TRACER_AMB_VALUES=None,
+        # two-temperature
+        TWO_TEMPERATURE=False,
+        TEI_TAU=0.5,
+        TE_AMB=None,
+        TI_AMB=None,
+        TE_NOZZLE=None,
+        TI_NOZZLE=None,
+        # cooling/heating
+        COOLING_ENABLED=False,
+        COOLING_LAMBDA=0.0,
+        HEATING_RATE=0.0,
+        # resistive RMHD
+        RESISTIVE_ENABLED=False,
+        RESISTIVITY=0.0,
         # results
         RESULTS_UNIQUE=False,
         # debug
@@ -183,11 +197,29 @@ def load_settings():
     s["TRACER_NOZZLE_VALUES"] = _expand_tracer_values(s.get("TRACER_NOZZLE_VALUES"), ntr, 1.0, 0.0)
     s["TRACER_AMB_VALUES"] = _expand_tracer_values(s.get("TRACER_AMB_VALUES"), ntr, 0.0, 0.0)
 
+    # two-temperature defaults
+    if s.get("TWO_TEMPERATURE", False):
+        tamb = s.get("P_AMB", s.get("P_EQ", 1.0e-2)) / max(s.get("RHO_AMB", 1.0), 1e-12)
+        if s.get("TE_AMB") is None:
+            s["TE_AMB"] = tamb
+        if s.get("TI_AMB") is None:
+            s["TI_AMB"] = tamb
+        if s.get("TE_NOZZLE") is None:
+            s["TE_NOZZLE"] = s["TE_AMB"]
+        if s.get("TI_NOZZLE") is None:
+            s["TI_NOZZLE"] = s["TI_AMB"]
+        s["N_THERMO"] = 2
+    else:
+        s["N_THERMO"] = 0
+
     # tracer offset (base variables + optional dissipation)
     if s.get("PHYSICS") in ("rmhd", "grmhd"):
         base = 9
     else:
         base = 15 if s.get("DISSIPATION_ENABLED", False) else 5
     s["TRACER_OFFSET"] = base
+    s["PASSIVE_OFFSET"] = base
+    s["N_PASSIVE"] = s["N_TRACERS"] + s["N_THERMO"]
+    s["THERMO_OFFSET"] = base + s["N_TRACERS"]
 
     return s

@@ -75,5 +75,16 @@
   "N_TRACERS": 1,
   "TRACER_NAMES": ["jet"],
   "TRACER_NOZZLE_VALUES": [1.0],
-  "TRACER_AMB_VALUES": [0.0]
+  "TRACER_AMB_VALUES": [0.0],
+  "TWO_TEMPERATURE": false,
+  "TEI_TAU": 0.5,
+  "TE_AMB": null,
+  "TI_AMB": null,
+  "TE_NOZZLE": null,
+  "TI_NOZZLE": null,
+  "COOLING_ENABLED": false,
+  "COOLING_LAMBDA": 0.0,
+  "HEATING_RATE": 0.0,
+  "RESISTIVE_ENABLED": false,
+  "RESISTIVITY": 0.0
 }

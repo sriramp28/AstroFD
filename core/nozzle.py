@@ -67,6 +67,13 @@ def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng, cfg):
                         t_noz = nozzle_vals[t] if t < len(nozzle_vals) else (1.0 if t == 0 else 0.0)
                         t_amb = amb_vals[t] if t < len(amb_vals) else 0.0
                         pr[off + t, g, j, k] = t_amb + (t_noz - t_amb) * s
+                if cfg.get("TWO_TEMPERATURE", False):
+                    toff = int(cfg.get("THERMO_OFFSET", 0))
+                    if pr.shape[0] > toff + 1:
+                        te = float(cfg.get("TE_NOZZLE", cfg.get("TE_AMB", 0.0)))
+                        ti = float(cfg.get("TI_NOZZLE", cfg.get("TI_AMB", 0.0)))
+                        pr[toff, g, j, k] = te
+                        pr[toff+1, g, j, k] = ti
                 if cfg.get("PHYSICS") in ("rmhd", "grmhd"):
                     Bx = By = Bz = 0.0
                     if cfg.get("B_INIT") == "poloidal":
