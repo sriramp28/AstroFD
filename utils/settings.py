@@ -57,6 +57,7 @@ def load_settings():
         RELAX_TAU_SHEAR=None,
         RELAX_TAU_HEAT=None,
         DISSIPATION_CAP_FRAC=0.5,
+        DISSIPATION_ADVECT=True,
         # tracers
         N_TRACERS=0,
         TRACER_NAMES=None,

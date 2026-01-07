@@ -42,6 +42,65 @@ def apply_causal_dissipation(pr, dt, dx, dy, dz, cfg):
     inv2dz = 0.5 / max(dz, 1e-12)
     cap_frac = float(cfg.get("DISSIPATION_CAP_FRAC", 0.5))
     pmax = float(cfg.get("P_MAX", 1.0))
+    advect = bool(cfg.get("DISSIPATION_ADVECT", True))
+
+    if advect:
+        # First-order upwind advection for dissipative variables (explicit step).
+        pi_adv = pr[pi_idx].copy()
+        pixx_adv = pr[pixx_idx].copy()
+        piyy_adv = pr[piyy_idx].copy()
+        pizz_adv = pr[pizz_idx].copy()
+        pixy_adv = pr[pixy_idx].copy()
+        pixz_adv = pr[pixz_idx].copy()
+        piyz_adv = pr[piyz_idx].copy()
+        qx_adv = pr[qx_idx].copy()
+        qy_adv = pr[qy_idx].copy()
+        qz_adv = pr[qz_idx].copy()
+
+        for i in range(ng, nx-ng):
+            for j in range(ng, ny-ng):
+                for k in range(ng, nz-ng):
+                    vx = pr[1, i, j, k]
+                    vy = pr[2, i, j, k]
+                    vz = pr[3, i, j, k]
+
+                    for arr_adv, arr in (
+                        (pi_adv, pr[pi_idx]),
+                        (pixx_adv, pr[pixx_idx]),
+                        (piyy_adv, pr[piyy_idx]),
+                        (pizz_adv, pr[pizz_idx]),
+                        (pixy_adv, pr[pixy_idx]),
+                        (pixz_adv, pr[pixz_idx]),
+                        (piyz_adv, pr[piyz_idx]),
+                        (qx_adv, pr[qx_idx]),
+                        (qy_adv, pr[qy_idx]),
+                        (qz_adv, pr[qz_idx]),
+                    ):
+                        u0 = arr[i, j, k]
+                        if vx > 0.0:
+                            dudx = (u0 - arr[i-1, j, k]) / max(dx, 1e-12)
+                        else:
+                            dudx = (arr[i+1, j, k] - u0) / max(dx, 1e-12)
+                        if vy > 0.0:
+                            dudy = (u0 - arr[i, j-1, k]) / max(dy, 1e-12)
+                        else:
+                            dudy = (arr[i, j+1, k] - u0) / max(dy, 1e-12)
+                        if vz > 0.0:
+                            dudz = (u0 - arr[i, j, k-1]) / max(dz, 1e-12)
+                        else:
+                            dudz = (arr[i, j, k+1] - u0) / max(dz, 1e-12)
+                        arr_adv[i, j, k] = u0 - dt * (vx*dudx + vy*dudy + vz*dudz)
+
+        pr[pi_idx] = pi_adv
+        pr[pixx_idx] = pixx_adv
+        pr[piyy_idx] = piyy_adv
+        pr[pizz_idx] = pizz_adv
+        pr[pixy_idx] = pixy_adv
+        pr[pixz_idx] = pixz_adv
+        pr[piyz_idx] = piyz_adv
+        pr[qx_idx] = qx_adv
+        pr[qy_idx] = qy_adv
+        pr[qz_idx] = qz_adv
 
     for i in range(ng, nx-ng):
         for j in range(ng, ny-ng):
