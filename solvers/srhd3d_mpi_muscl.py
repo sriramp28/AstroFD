@@ -133,7 +133,7 @@ def exchange_halos(pr, comm, left, right):
 # ------------------------
 # Initialization
 # ------------------------
-def init_block(nx_loc, ny_loc, nz_loc):
+def init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz):
     nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
         nv = 15
@@ -175,6 +175,32 @@ def init_block(nx_loc, ny_loc, nz_loc):
     if PHYSICS == "sn" and len(SN_COMP_NAMES) > 0:
         for ci, val in enumerate(SN_COMP_AMB_VALUES):
             pr[SN_COMP_OFFSET + ci, :, :, :] = val
+
+    if PHYSICS == "sn":
+        init = str(settings.get("SN_INIT", "uniform")).lower()
+        if init in ("sedov", "shock_sphere"):
+            center = settings.get("SN_GRAVITY_CENTER") or [0.5*Lx, 0.5*Ly, 0.5*Lz]
+            cx, cy, cz = center
+            for i in range(pr.shape[1]):
+                x = (x0 + (i - NG) + 0.5) * dx
+                for j in range(pr.shape[2]):
+                    y = (j - NG + 0.5) * dy
+                    for k in range(pr.shape[3]):
+                        z = (k - NG + 0.5) * dz
+                        r = ((x - cx)**2 + (y - cy)**2 + (z - cz)**2) ** 0.5
+                        if init == "sedov":
+                            r0 = float(settings.get("SN_SEDOV_RADIUS", 0.05))
+                            dp = float(settings.get("SN_SEDOV_DP", 1.0))
+                            if r <= r0:
+                                pr[4, i, j, k] += dp
+                        else:
+                            r0 = float(settings.get("SN_SPHERE_RADIUS", 0.2))
+                            if r <= r0:
+                                pr[0, i, j, k] = float(settings.get("SN_RHO_IN", pr[0, i, j, k]))
+                                pr[4, i, j, k] = float(settings.get("SN_P_IN", pr[4, i, j, k]))
+                            else:
+                                pr[0, i, j, k] = float(settings.get("SN_RHO_OUT", pr[0, i, j, k]))
+                                pr[4, i, j, k] = float(settings.get("SN_P_OUT", pr[4, i, j, k]))
     return pr
 
 def latest_run_dir(base="results"):
@@ -255,7 +281,7 @@ def main():
     ny_loc, nz_loc = NY, NZ
 
     # allocate primitives
-    pr = init_block(nx_loc, ny_loc, nz_loc)
+    pr = init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz)
     rng = np.random.default_rng(1234 + rank*777)
 
     t = 0.0

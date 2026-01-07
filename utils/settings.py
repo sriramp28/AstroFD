@@ -55,6 +55,14 @@ def load_settings():
         SN_COMP_NAMES=None,
         SN_COMP_AMB_VALUES=None,
         SN_COMP_NOZZLE_VALUES=None,
+        SN_INIT="uniform",
+        SN_SEDOV_RADIUS=0.05,
+        SN_SEDOV_DP=1.0,
+        SN_SPHERE_RADIUS=0.2,
+        SN_RHO_IN=1.0,
+        SN_RHO_OUT=0.1,
+        SN_P_IN=1.0,
+        SN_P_OUT=0.01,
         # physics mode (RMHD scaffold)
         PHYSICS="hydro",      # "hydro" | "rmhd"
         GLM_CH=1.0,           # hyperbolic cleaning speed
@@ -301,7 +309,7 @@ def load_settings():
         s["SN_COMP_NAMES"] = names
         s["SN_COMP_AMB_VALUES"] = _expand_tracer_values(s.get("SN_COMP_AMB_VALUES"), len(names), 0.5, 0.0)
         s["SN_COMP_NOZZLE_VALUES"] = _expand_tracer_values(s.get("SN_COMP_NOZZLE_VALUES"), len(names), 0.5, 0.0)
-        s["SN_COMP_OFFSET"] = base
+        s["SN_COMP_OFFSET"] = base + s["N_TRACERS"] + s["N_THERMO"] + s["N_CHEM"]
         s["N_PASSIVE"] += len(names)
     else:
         s["SN_COMP_NAMES"] = []
