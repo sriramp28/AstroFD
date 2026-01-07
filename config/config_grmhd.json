@@ -54,5 +54,11 @@
 
   // caps (reuse existing)
   "V_MAX": 0.9999,
-  "P_MAX": 2.0
+  "P_MAX": 2.0,
+
+  // GR placeholders
+  "GR_METRIC": "kerr-schild",
+  "GR_MASS": 1.0,
+  "GR_SPIN": 0.0,
+  "ORTHONORMAL_FLUX": true
 }

@@ -60,6 +60,7 @@
   "GR_METRIC": "schwarzschild",
   "GR_MASS": 1.0,
   "GR_SPIN": 0.0,
+  "ORTHONORMAL_FLUX": true,
 
   // dissipation placeholders
   "DISSIPATION_ENABLED": false,

@@ -45,6 +45,7 @@ def load_settings():
         GR_METRIC="minkowski",   # "minkowski" | "schwarzschild" | "kerr-schild"
         GR_MASS=1.0,
         GR_SPIN=0.0,
+        ORTHONORMAL_FLUX=True,
         # dissipation placeholders
         DISSIPATION_ENABLED=False,
         DISSIPATION_MODEL="israel_stewart",

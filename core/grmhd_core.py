@@ -7,20 +7,42 @@ from core import gr_metric
 
 GR_METRIC = "minkowski"
 GR_MASS = 1.0
+ORTHONORMAL_FLUX = True
+GR_SPIN = 0.0
 
 def configure(params):
-    global GR_METRIC, GR_MASS
+    global GR_METRIC, GR_MASS, ORTHONORMAL_FLUX, GR_SPIN
     GR_METRIC = str(params.get("GR_METRIC", "minkowski")).lower()
     GR_MASS = float(params.get("GR_MASS", GR_MASS))
+    GR_SPIN = float(params.get("GR_SPIN", GR_SPIN))
+    ORTHONORMAL_FLUX = bool(params.get("ORTHONORMAL_FLUX", ORTHONORMAL_FLUX))
 
 def compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    pr_use = pr
+    if ORTHONORMAL_FLUX and GR_METRIC in ("schwarzschild", "kerr-schild"):
+        pr_use = pr.copy()
+        for i in range(ng, nx-ng):
+            x = (offs_x + (i - ng) + 0.5) * dx
+            for j in range(ng, ny-ng):
+                y = (j - ng + 0.5) * dy
+                for k in range(ng, nz-ng):
+                    z = (k - ng + 0.5) * dz
+                    if GR_METRIC == "schwarzschild":
+                        alpha, _bx, _by, _bz, _dax, _day, _daz = gr_metric.schwarzschild_ks_lapse_shift_and_grad(x, y, z, GR_MASS)
+                    else:
+                        alpha, _bx, _by, _bz, _dax, _day, _daz = gr_metric.kerr_schild_lapse_shift_and_grad(x, y, z, GR_MASS, GR_SPIN)
+                    ax = max(alpha, 1e-12)
+                    pr_use[1, i, j, k] = pr[1, i, j, k] / ax
+                    pr_use[2, i, j, k] = pr[2, i, j, k] / ax
+                    pr_use[3, i, j, k] = pr[3, i, j, k] / ax
+
     if rmhd_core.RECON_ID == 1:
-        rhs = rmhd_core.compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz)
+        rhs = rmhd_core.compute_rhs_ppm(pr_use, nx, ny, nz, dx, dy, dz)
     elif rmhd_core.RECON_ID == 2:
-        rhs = rmhd_core.compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz)
+        rhs = rmhd_core.compute_rhs_weno(pr_use, nx, ny, nz, dx, dy, dz)
     else:
-        rhs = rmhd_core.compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz)
+        rhs = rmhd_core.compute_rhs_rmhd(pr_use, nx, ny, nz, dx, dy, dz)
 
     if GR_METRIC == "minkowski":
         return rhs
@@ -31,7 +53,10 @@ def compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng):
             y = (j - ng + 0.5) * dy
             for k in range(ng, nz-ng):
                 z = (k - ng + 0.5) * dz
-                _alpha, dlnadx, dlnady, dlnadz = gr_metric.schwarzschild_iso_lapse_and_grad(x, y, z, GR_MASS)
+                if GR_METRIC == "schwarzschild":
+                    _alpha, dlnadx, dlnady, dlnadz = gr_metric.schwarzschild_iso_lapse_and_grad(x, y, z, GR_MASS)
+                else:
+                    _alpha, _bx, _by, _bz, dlnadx, dlnady, dlnadz = gr_metric.kerr_schild_lapse_shift_and_grad(x, y, z, GR_MASS, GR_SPIN)
 
                 rho, vx, vy, vz, p = pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k]
                 Bx, By, Bz = pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k]
