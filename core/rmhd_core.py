@@ -219,6 +219,26 @@ def _cons_to_prim_hydro(D, Sx, Sy, Sz, tau, gamma=GAMMA):
     return rho, vx, vy, vz, p
 
 @nb.njit(fastmath=True)
+def rmhd_f_of_Z(Z, D, tau, B2, SB, S2):
+    denomZ = max(Z, SMALL)
+    vb = SB / denomZ
+    ZpB = Z + B2
+    v2 = (S2 + (SB*SB) * (2.0*Z + B2) / (denomZ*denomZ)) / (ZpB*ZpB + SMALL)
+    vmax2 = V_MAX*V_MAX
+    if v2 >= vmax2:
+        v2 = vmax2 - 1e-14
+    W2 = 1.0 / (1.0 - v2)
+    W = np.sqrt(W2)
+    rho = D / max(W, SMALL)
+    h = Z / max(rho*W2, SMALL)
+    p = (h - 1.0) * rho * (GAMMA - 1.0) / GAMMA
+    if p < SMALL: p = SMALL
+    if p > P_MAX: p = P_MAX
+    b2 = B2 / W2 + vb*vb
+    tau_calc = Z - p + 0.5*B2 + 0.5*b2 - D
+    return tau_calc - tau
+
+@nb.njit(fastmath=True)
 def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     # Improved recovery: solve for Z = rho h W^2 using a damped Newton iteration.
     B2 = Bx*Bx + By*By + Bz*Bz
@@ -237,45 +257,15 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     h0 = 1.0 + GAMMA/(GAMMA-1.0)*p0/max(rho0, SMALL)
     Z = max(rho0*h0*W0*W0, SMALL)
 
+    ok = False
     for _ in range(50):
-        denomZ = max(Z, SMALL)
-        vb = SB / denomZ
-        ZpB = Z + B2
-        v2 = (S2 + (SB*SB) * (2.0*Z + B2) / (denomZ*denomZ)) / (ZpB*ZpB + SMALL)
-        vmax2 = V_MAX*V_MAX
-        if v2 >= vmax2:
-            v2 = vmax2 - 1e-14
-        W2 = 1.0 / (1.0 - v2)
-        W = np.sqrt(W2)
-        rho = D / max(W, SMALL)
-        h = Z / max(rho*W2, SMALL)
-        p = (h - 1.0) * rho * (GAMMA - 1.0) / GAMMA
-        if p < SMALL: p = SMALL
-        if p > P_MAX: p = P_MAX
-        b2 = B2 / W2 + vb*vb
-        tau_calc = Z - p + 0.5*B2 + 0.5*b2 - D
-        f = tau_calc - tau
+        f = rmhd_f_of_Z(Z, D, tau, B2, SB, S2)
         if np.abs(f) < 1e-10 * max(1.0, tau):
+            ok = True
             break
 
         eps = 1e-6 * max(1.0, Z)
-        Zp = Z + eps
-        denomZp = max(Zp, SMALL)
-        vb_p = SB / denomZp
-        ZpB_p = Zp + B2
-        v2p = (S2 + (SB*SB) * (2.0*Zp + B2) / (denomZp*denomZp)) / (ZpB_p*ZpB_p + SMALL)
-        if v2p >= vmax2:
-            v2p = vmax2 - 1e-14
-        W2p = 1.0 / (1.0 - v2p)
-        Wp = np.sqrt(W2p)
-        rhop = D / max(Wp, SMALL)
-        hp = Zp / max(rhop*W2p, SMALL)
-        pp = (hp - 1.0) * rhop * (GAMMA - 1.0) / GAMMA
-        if pp < SMALL: pp = SMALL
-        if pp > P_MAX: pp = P_MAX
-        b2p = B2 / W2p + vb_p*vb_p
-        tau_calc_p = Zp - pp + 0.5*B2 + 0.5*b2p - D
-        fp = tau_calc_p - tau
+        fp = rmhd_f_of_Z(Z + eps, D, tau, B2, SB, S2)
 
         dfdZ = (fp - f) / eps
         if dfdZ == 0.0:
@@ -286,6 +276,32 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
         Z += dZ
         if Z < SMALL:
             Z = SMALL
+
+    if not ok:
+        # Fallback to bisection if Newton stalls.
+        Zmin = SMALL
+        Zmax = max(Z, 1.0)
+        fmin = rmhd_f_of_Z(Zmin, D, tau, B2, SB, S2)
+        fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
+        for _ in range(40):
+            if fmin * fmax <= 0.0:
+                break
+            Zmax *= 2.0
+            fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
+        if fmin * fmax <= 0.0:
+            for _ in range(60):
+                Zmid = 0.5*(Zmin + Zmax)
+                fmid = rmhd_f_of_Z(Zmid, D, tau, B2, SB, S2)
+                if np.abs(fmid) < 1e-10 * max(1.0, tau):
+                    Z = Zmid
+                    break
+                if fmin * fmid <= 0.0:
+                    Zmax = Zmid
+                    fmax = fmid
+                else:
+                    Zmin = Zmid
+                    fmin = fmid
+                Z = 0.5*(Zmin + Zmax)
 
     # recover velocities
     ZpB = Z + B2
@@ -381,6 +397,60 @@ def hlle_scalar(qL, qR, fL, fR, sL, sR):
     if sR <= 0.0:
         return fR
     return (sR*fL - sL*fR + sL*sR*(qR - qL)) / (sR - sL + SMALL)
+
+@nb.njit(fastmath=True)
+def rmhd_fast_speed(rho, p, vx, vy, vz, Bx, By, Bz):
+    # Approximate fast magnetosonic speed in fluid frame.
+    v2 = vx*vx + vy*vy + vz*vz
+    if v2 >= V_MAX*V_MAX:
+        v2 = V_MAX*V_MAX - 1e-14
+    W = 1.0 / np.sqrt(1.0 - v2)
+    if rho < SMALL:
+        rho = SMALL
+    if p < SMALL:
+        p = SMALL
+    if p > P_MAX:
+        p = P_MAX
+
+    h = 1.0 + GAMMA/(GAMMA-1.0)*p/max(rho, SMALL)
+    rhoh = rho*h
+    B2 = Bx*Bx + By*By + Bz*Bz
+    vb = vx*Bx + vy*By + vz*Bz
+    b0 = W*vb
+    bx = (Bx + b0*vx)/W
+    by = (By + b0*vy)/W
+    bz = (Bz + b0*vz)/W
+    b2 = (bx*bx + by*by + bz*bz) - b0*b0
+
+    cs2 = GAMMA*p/max(rhoh, SMALL)
+    if cs2 < 0.0: cs2 = 0.0
+    if cs2 > 1.0 - 1e-14: cs2 = 1.0 - 1e-14
+    ca2 = b2 / max(rhoh + b2, SMALL)
+    if ca2 < 0.0: ca2 = 0.0
+    if ca2 > 1.0 - 1e-14: ca2 = 1.0 - 1e-14
+
+    a = cs2 + ca2 - cs2*ca2
+    disc = a*a - 4.0*cs2*ca2
+    if disc < 0.0:
+        disc = 0.0
+    cf2 = 0.5*(a + np.sqrt(disc))
+    if cf2 < 0.0: cf2 = 0.0
+    if cf2 > 1.0 - 1e-14: cf2 = 1.0 - 1e-14
+    return np.sqrt(cf2)
+
+@nb.njit(fastmath=True)
+def rmhd_eig_speeds(vn, cf):
+    dp = 1.0 + vn*cf
+    dm = 1.0 - vn*cf
+    if dp == 0.0: dp = SMALL
+    if dm == 0.0: dm = SMALL
+    lp = (vn + cf)/dp
+    lm = (vn - cf)/dm
+    if lp >  1.0: lp =  1.0
+    if lp < -1.0: lp = -1.0
+    if lm >  1.0: lm =  1.0
+    if lm < -1.0: lm = -1.0
+    return lm, lp
 
 @nb.njit(fastmath=True)
 def hllc_hydro_flux_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
@@ -511,8 +581,6 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
     i0, i1 = 2, nx-2
     j0, j1 = 2, ny-2
     k0, k1 = 2, nz-2
-    sL, sR = hlle_bounds_fast()
-
     for i in range(i0, i1):
         for j in range(j0, j1):
             for k in range(k0, k1):
@@ -544,6 +612,21 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FxL = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
                 if N_TRACERS > 0:
                     FxL_tr = np.empty(N_TRACERS)
@@ -596,7 +679,12 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
@@ -653,6 +741,11 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vyL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vyR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
                 if N_TRACERS > 0:
                     FyD_tr = np.empty(N_TRACERS)
@@ -704,7 +797,12 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
@@ -761,6 +859,11 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vzL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vzR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
                 if N_TRACERS > 0:
                     FzB_tr = np.empty(N_TRACERS)
@@ -812,7 +915,12 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
@@ -895,7 +1003,12 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
 
                 rhs[0:9, i, j, k] -= (FxR - FxL) / dx
 
@@ -918,6 +1031,11 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vyL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vyR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
@@ -926,7 +1044,12 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
 
                 rhs[0:9, i, j, k] -= (FyU - FyD) / dy
 
@@ -949,6 +1072,11 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vzL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vzR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
@@ -957,7 +1085,12 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
 
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
 
@@ -1002,7 +1135,12 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
 
                 rhs[0:9, i, j, k] -= (FxR - FxL) / dx
 
@@ -1019,6 +1157,11 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vyL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vyR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
@@ -1027,7 +1170,12 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
 
                 rhs[0:9, i, j, k] -= (FyU - FyD) / dy
 
@@ -1044,6 +1192,11 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vzL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vzR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
@@ -1052,7 +1205,12 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                cfL2 = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR2 = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
+                lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
+                sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
+                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
 
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
 
