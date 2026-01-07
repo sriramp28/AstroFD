@@ -38,7 +38,10 @@ def configure(params):
     else:
         RECON_ID = 0
     riemann = str(params.get("RIEMANN", "hlle")).lower()
-    RIEMANN_ID = 1 if riemann == "hlld" else 0
+    if riemann == "hlld_full":
+        RIEMANN_ID = 2
+    else:
+        RIEMANN_ID = 1 if riemann == "hlld" else 0
     N_TRACERS = int(params.get("N_TRACERS", N_TRACERS))
     TRACER_OFFSET = int(params.get("TRACER_OFFSET", TRACER_OFFSET))
 
@@ -550,6 +553,8 @@ def hllc_hydro_flux_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
 
 @nb.njit(fastmath=True)
 def riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+    if RIEMANN_ID == 2:
+        return hll_d_flux_dir(0, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
     if RIEMANN_ID == 1:
         hllc = hllc_hydro_flux_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
@@ -579,7 +584,134 @@ def hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vL, vR):
     return (pR - pL + SzL*(sL - vL) - SzR*(sR - vR)) / denom
 
 @nb.njit(fastmath=True)
+def hll_d_flux_dir(n, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+    # Experimental RMHD HLLD (approximate). Falls back to HLLE on invalid states.
+    if sL >= 0.0:
+        return FL
+    if sR <= 0.0:
+        return FR
+
+    # index mapping
+    if n == 0:
+        vn = 1; vt1 = 2; vt2 = 3
+        bn = 5; bt1 = 6; bt2 = 7
+    elif n == 1:
+        vn = 2; vt1 = 1; vt2 = 3
+        bn = 6; bt1 = 5; bt2 = 7
+    else:
+        vn = 3; vt1 = 1; vt2 = 2
+        bn = 7; bt1 = 5; bt2 = 6
+
+    # Unpack primitives from fluxes (we don't have prim arrays here; infer from FL/FR using UL/UR).
+    # Use UL/UR as conserved and pL/pR for thermal pressure to construct approximate primitives.
+    # Approximate: use vL/vR for normal velocity and infer tangentials from flux ratios.
+    vL_n = vL
+    vR_n = vR
+    if UL[0] <= SMALL or UR[0] <= SMALL:
+        return hlle(UL, UR, FL, FR, sL, sR)
+
+    # Reconstruct magnetic fields from fluxes: use Bn from UL/UR (stored in UL[5:8]).
+    BnL = UL[bn]; BnR = UR[bn]
+    Bt1L = UL[bt1]; Bt2L = UL[bt2]
+    Bt1R = UR[bt1]; Bt2R = UR[bt2]
+    Bn = 0.5*(BnL + BnR)
+    if abs(Bn) < 1e-8:
+        return hlle(UL, UR, FL, FR, sL, sR)
+
+    # Contact speed from HLLC
+    if n == 0:
+        sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
+    elif n == 1:
+        sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
+    else:
+        sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
+
+    DL = UL[0]; DR = UR[0]
+    DstarL = DL*(sL - vL_n)/(sL - sM + SMALL)
+    DstarR = DR*(sR - vR_n)/(sR - sM + SMALL)
+    if DstarL <= SMALL or DstarR <= SMALL:
+        return hlle(UL, UR, FL, FR, sL, sR)
+
+    # Tangential fields and velocities in star region
+    Bt1L_star = Bt1L*(sL - vL_n)/(sL - sM + SMALL)
+    Bt2L_star = Bt2L*(sL - vL_n)/(sL - sM + SMALL)
+    Bt1R_star = Bt1R*(sR - vR_n)/(sR - sM + SMALL)
+    Bt2R_star = Bt2R*(sR - vR_n)/(sR - sM + SMALL)
+
+    denomL = DL*(sL - vL_n) - Bn*Bn
+    denomR = DR*(sR - vR_n) - Bn*Bn
+    if abs(denomL) < SMALL or abs(denomR) < SMALL:
+        return hlle(UL, UR, FL, FR, sL, sR)
+
+    vt1L = UL[vt1] / max(DL, SMALL)
+    vt2L = UL[vt2] / max(DL, SMALL)
+    vt1R = UR[vt1] / max(DR, SMALL)
+    vt2R = UR[vt2] / max(DR, SMALL)
+
+    vt1L_star = vt1L - Bn*(Bt1L - Bt1L_star)/denomL
+    vt2L_star = vt2L - Bn*(Bt2L - Bt2L_star)/denomL
+    vt1R_star = vt1R - Bn*(Bt1R - Bt1R_star)/denomR
+    vt2R_star = vt2R - Bn*(Bt2R - Bt2R_star)/denomR
+
+    # Alfven speeds
+    sL_star = sM - abs(Bn)/np.sqrt(DstarL + SMALL)
+    sR_star = sM + abs(Bn)/np.sqrt(DstarR + SMALL)
+
+    sqrtDL = np.sqrt(DstarL)
+    sqrtDR = np.sqrt(DstarR)
+    sgn = 1.0 if Bn >= 0.0 else -1.0
+    vt1_starstar = (sqrtDL*vt1L_star + sqrtDR*vt1R_star + sgn*(Bt1R_star - Bt1L_star)) / (sqrtDL + sqrtDR + SMALL)
+    vt2_starstar = (sqrtDL*vt2L_star + sqrtDR*vt2R_star + sgn*(Bt2R_star - Bt2L_star)) / (sqrtDL + sqrtDR + SMALL)
+    Bt1_starstar = (sqrtDL*Bt1R_star + sqrtDR*Bt1L_star + sgn*sqrtDL*sqrtDR*(vt1L_star - vt1R_star)) / (sqrtDL + sqrtDR + SMALL)
+    Bt2_starstar = (sqrtDL*Bt2R_star + sqrtDR*Bt2L_star + sgn*sqrtDL*sqrtDR*(vt2L_star - vt2R_star)) / (sqrtDL + sqrtDR + SMALL)
+
+    # Build star primitives (approximate) and conserved states for flux construction.
+    def build_state(Dstar, vtn1, vtn2, Bt1s, Bt2s, psi):
+        rho = max(Dstar, SMALL)
+        if n == 0:
+            vx = sM; vy = vtn1; vz = vtn2; Bx = Bn; By = Bt1s; Bz = Bt2s
+        elif n == 1:
+            vy = sM; vx = vtn1; vz = vtn2; By = Bn; Bx = Bt1s; Bz = Bt2s
+        else:
+            vz = sM; vx = vtn1; vy = vtn2; Bz = Bn; Bx = Bt1s; By = Bt2s
+        p = pL if Dstar == DstarL else pR
+        return rho, vx, vy, vz, p, Bx, By, Bz, psi
+
+    primL_star = build_state(DstarL, vt1L_star, vt2L_star, Bt1L_star, Bt2L_star, UL[8])
+    primR_star = build_state(DstarR, vt1R_star, vt2R_star, Bt1R_star, Bt2R_star, UR[8])
+    prim_starstar = build_state(0.5*(DstarL + DstarR), vt1_starstar, vt2_starstar, Bt1_starstar, Bt2_starstar, 0.5*(UL[8] + UR[8]))
+
+    ULs = np.array(prim_to_cons_rmhd(*primL_star, GAMMA))
+    URs = np.array(prim_to_cons_rmhd(*primR_star, GAMMA))
+    Us = np.array(prim_to_cons_rmhd(*prim_starstar, GAMMA))
+
+    if n == 0:
+        FLs = flux_rmhd_x(np.array(primL_star))
+        FRs = flux_rmhd_x(np.array(primR_star))
+        Fs = flux_rmhd_x(np.array(prim_starstar))
+    elif n == 1:
+        FLs = flux_rmhd_y(np.array(primL_star))
+        FRs = flux_rmhd_y(np.array(primR_star))
+        Fs = flux_rmhd_y(np.array(prim_starstar))
+    else:
+        FLs = flux_rmhd_z(np.array(primL_star))
+        FRs = flux_rmhd_z(np.array(primR_star))
+        Fs = flux_rmhd_z(np.array(prim_starstar))
+
+    if sL <= 0.0 and 0.0 <= sL_star:
+        return FL + sL*(ULs - UL)
+    if sL_star <= 0.0 and 0.0 <= sM:
+        return FL + sL*(ULs - UL) + sL_star*(Us - ULs)
+    if sM <= 0.0 and 0.0 <= sR_star:
+        return FR + sR*(URs - UR) + sR_star*(Us - URs)
+    if sR_star <= 0.0 and 0.0 <= sR:
+        return FR + sR*(URs - UR)
+    return hlle(UL, UR, FL, FR, sL, sR)
+
+@nb.njit(fastmath=True)
 def riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+    if RIEMANN_ID == 2:
+        return hll_d_flux_dir(1, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
     if RIEMANN_ID == 1:
         hllc = hllc_hydro_flux_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
@@ -589,6 +721,8 @@ def riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
 
 @nb.njit(fastmath=True)
 def riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+    if RIEMANN_ID == 2:
+        return hll_d_flux_dir(2, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
     if RIEMANN_ID == 1:
         hllc = hllc_hydro_flux_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
