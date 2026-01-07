@@ -26,6 +26,7 @@ from core import grhd_core
 from core import grmhd_core
 from core import dissipation
 from core import source_terms
+from core import chemistry
 from core import boundary
 from core import nozzle
 
@@ -79,6 +80,9 @@ TRACER_NAMES = settings.get("TRACER_NAMES", [])
 TRACER_AMB_VALUES = settings.get("TRACER_AMB_VALUES", [])
 N_THERMO = int(settings.get("N_THERMO", 0))
 THERMO_OFFSET = int(settings.get("THERMO_OFFSET", TRACER_OFFSET + N_TRACERS))
+N_CHEM = int(settings.get("N_CHEM", 0))
+CHEM_OFFSET = int(settings.get("CHEM_OFFSET", THERMO_OFFSET + N_THERMO))
+CHEM_NAMES = settings.get("CHEM_NAMES", ["xHII", "xHeII", "xHeIII"])
 
 SMALL = 1e-12
  
@@ -129,6 +133,8 @@ def init_block(nx_loc, ny_loc, nz_loc):
         nv += N_TRACERS
     if N_THERMO > 0:
         nv += N_THERMO
+    if N_CHEM > 0:
+        nv += N_CHEM
     pr = np.zeros((nv, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
 
     # base hydro fields
@@ -150,6 +156,10 @@ def init_block(nx_loc, ny_loc, nz_loc):
         ti = float(settings.get("TI_AMB", 0.0))
         pr[THERMO_OFFSET, :, :, :] = te
         pr[THERMO_OFFSET + 1, :, :, :] = ti
+    if N_CHEM > 0:
+        pr[CHEM_OFFSET + 0, :, :, :] = float(settings.get("CHEM_X_HII_AMB", 0.0))
+        pr[CHEM_OFFSET + 1, :, :, :] = float(settings.get("CHEM_X_HEII_AMB", 0.0))
+        pr[CHEM_OFFSET + 2, :, :, :] = float(settings.get("CHEM_X_HEIII_AMB", 0.0))
     return pr
 
 def latest_run_dir(base="results"):
@@ -313,6 +323,7 @@ def main():
         pr = dissipation.apply_causal_dissipation(pr, dt, dx, dy, dz, settings)
         pr = source_terms.apply_cooling_heating(pr, dt, settings)
         pr = source_terms.apply_two_temperature(pr, dt, settings)
+        pr = chemistry.apply_ion_chemistry(pr, dt, settings)
 
         # update time, step count
         t += dt
@@ -343,6 +354,10 @@ def main():
             if N_THERMO > 0:
                 tracer_fields["Te"] = pr[THERMO_OFFSET]
                 tracer_fields["Ti"] = pr[THERMO_OFFSET + 1]
+            if N_CHEM > 0:
+                for ci in range(N_CHEM):
+                    name = CHEM_NAMES[ci] if ci < len(CHEM_NAMES) else f"chem{ci}"
+                    tracer_fields[name] = pr[CHEM_OFFSET + ci]
             if PHYSICS in ("hydro", "grhd"):
                 if TRACER_OFFSET > 5:
                     np.savez(

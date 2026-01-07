@@ -63,6 +63,20 @@ def load_settings():
         TRACER_NAMES=None,
         TRACER_NOZZLE_VALUES=None,
         TRACER_AMB_VALUES=None,
+        # ion chemistry (H/He network)
+        CHEMISTRY_ENABLED=False,
+        CHEM_X=0.76,
+        CHEM_Y=0.24,
+        CHEM_TUNIT_K=1.0e4,
+        CHEM_RATE_SCALE=1.0,
+        CHEM_ENERGY_SCALE=1.0,
+        CHEM_TMIN_K=1.0,
+        CHEM_X_HII_AMB=0.0,
+        CHEM_X_HEII_AMB=0.0,
+        CHEM_X_HEIII_AMB=0.0,
+        CHEM_X_HII_NOZZLE=None,
+        CHEM_X_HEII_NOZZLE=None,
+        CHEM_X_HEIII_NOZZLE=None,
         # two-temperature
         TWO_TEMPERATURE=False,
         TEI_TAU=0.5,
@@ -198,6 +212,22 @@ def load_settings():
     s["TRACER_NOZZLE_VALUES"] = _expand_tracer_values(s.get("TRACER_NOZZLE_VALUES"), ntr, 1.0, 0.0)
     s["TRACER_AMB_VALUES"] = _expand_tracer_values(s.get("TRACER_AMB_VALUES"), ntr, 0.0, 0.0)
 
+    # ion chemistry defaults (H/He fractions)
+    if s.get("CHEMISTRY_ENABLED", False):
+        s["CHEM_X"] = float(s.get("CHEM_X", 0.76))
+        s["CHEM_Y"] = float(s.get("CHEM_Y", 0.24))
+        for key in ("CHEM_X_HII_AMB", "CHEM_X_HEII_AMB", "CHEM_X_HEIII_AMB"):
+            s[key] = max(0.0, min(1.0, float(s.get(key, 0.0))))
+        if s.get("CHEM_X_HII_NOZZLE") is None:
+            s["CHEM_X_HII_NOZZLE"] = s["CHEM_X_HII_AMB"]
+        if s.get("CHEM_X_HEII_NOZZLE") is None:
+            s["CHEM_X_HEII_NOZZLE"] = s["CHEM_X_HEII_AMB"]
+        if s.get("CHEM_X_HEIII_NOZZLE") is None:
+            s["CHEM_X_HEIII_NOZZLE"] = s["CHEM_X_HEIII_AMB"]
+        s["N_CHEM"] = 3
+    else:
+        s["N_CHEM"] = 0
+
     # two-temperature defaults
     if s.get("TWO_TEMPERATURE", False):
         tamb = s.get("P_AMB", s.get("P_EQ", 1.0e-2)) / max(s.get("RHO_AMB", 1.0), 1e-12)
@@ -220,7 +250,9 @@ def load_settings():
         base = 15 if s.get("DISSIPATION_ENABLED", False) else 5
     s["TRACER_OFFSET"] = base
     s["PASSIVE_OFFSET"] = base
-    s["N_PASSIVE"] = s["N_TRACERS"] + s["N_THERMO"]
+    s["N_PASSIVE"] = s["N_TRACERS"] + s["N_THERMO"] + s["N_CHEM"]
     s["THERMO_OFFSET"] = base + s["N_TRACERS"]
+    s["CHEM_OFFSET"] = base + s["N_TRACERS"] + s["N_THERMO"]
+    s["CHEM_NAMES"] = ["xHII", "xHeII", "xHeIII"]
 
     return s

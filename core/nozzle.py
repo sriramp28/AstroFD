@@ -74,6 +74,12 @@ def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng, cfg):
                         ti = float(cfg.get("TI_NOZZLE", cfg.get("TI_AMB", 0.0)))
                         pr[toff, g, j, k] = te
                         pr[toff+1, g, j, k] = ti
+                if cfg.get("CHEMISTRY_ENABLED", False):
+                    coff = int(cfg.get("CHEM_OFFSET", 0))
+                    if pr.shape[0] > coff + 2:
+                        pr[coff + 0, g, j, k] = float(cfg.get("CHEM_X_HII_NOZZLE", 0.0))
+                        pr[coff + 1, g, j, k] = float(cfg.get("CHEM_X_HEII_NOZZLE", 0.0))
+                        pr[coff + 2, g, j, k] = float(cfg.get("CHEM_X_HEIII_NOZZLE", 0.0))
                 if cfg.get("PHYSICS") in ("rmhd", "grmhd"):
                     Bx = By = Bz = 0.0
                     if cfg.get("B_INIT") == "poloidal":
