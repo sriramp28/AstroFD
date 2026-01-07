@@ -262,32 +262,39 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
         v20 = V_MAX*V_MAX - 1e-14
     W0 = 1.0 / np.sqrt(1.0 - v20)
     h0 = 1.0 + GAMMA/(GAMMA-1.0)*p0/max(rho0, SMALL)
-    Z = max(rho0*h0*W0*W0, SMALL)
+    Z0 = max(rho0*h0*W0*W0, SMALL)
+    Z1 = max(D + tau + B2, SMALL)
 
     ok = False
-    for _ in range(50):
-        f = rmhd_f_of_Z(Z, D, tau, B2, SB, S2)
-        if np.abs(f) < 1e-10 * max(1.0, tau):
-            ok = True
-            break
+    Z = Z0
+    for attempt in range(2):
+        if attempt == 1:
+            Z = Z1
+        for _ in range(50):
+            f = rmhd_f_of_Z(Z, D, tau, B2, SB, S2)
+            if np.abs(f) < 1e-10 * max(1.0, tau):
+                ok = True
+                break
 
-        eps = 1e-6 * max(1.0, Z)
-        fp = rmhd_f_of_Z(Z + eps, D, tau, B2, SB, S2)
+            eps = 1e-6 * max(1.0, Z)
+            fp = rmhd_f_of_Z(Z + eps, D, tau, B2, SB, S2)
 
-        dfdZ = (fp - f) / eps
-        if dfdZ == 0.0:
+            dfdZ = (fp - f) / eps
+            if dfdZ == 0.0:
+                break
+            dZ = -f / dfdZ
+            if dZ >  0.5*Z: dZ =  0.5*Z
+            if dZ < -0.5*Z: dZ = -0.5*Z
+            Z += dZ
+            if Z < SMALL:
+                Z = SMALL
+        if ok:
             break
-        dZ = -f / dfdZ
-        if dZ >  0.5*Z: dZ =  0.5*Z
-        if dZ < -0.5*Z: dZ = -0.5*Z
-        Z += dZ
-        if Z < SMALL:
-            Z = SMALL
 
     if not ok:
         # Fallback to bisection if Newton stalls.
         Zmin = SMALL
-        Zmax = max(Z, 1.0)
+        Zmax = max(Z, Z1, 1.0)
         fmin = rmhd_f_of_Z(Zmin, D, tau, B2, SB, S2)
         fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
         for _ in range(40):
@@ -326,6 +333,10 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     rho = D / max(W, SMALL)
     h = Z / max(rho*W*W, SMALL)
     p = (h - 1.0) * rho * (GAMMA - 1.0) / GAMMA
+
+    # If recovery yields invalid values, fall back to hydro guess with B kept.
+    if not np.isfinite(rho) or not np.isfinite(p) or rho <= 0.0 or p <= 0.0:
+        rho, vx, vy, vz, p = rho0, vx0, vy0, vz0, p0
 
     return floor_prim_rmhd(rho, vx, vy, vz, p, Bx, By, Bz, psi)
 
