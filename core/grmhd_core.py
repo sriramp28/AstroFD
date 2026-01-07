@@ -78,77 +78,106 @@ def compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng):
 
 def step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    npass = rmhd_core.N_PASSIVE
+    U0 = np.zeros((9, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                U0[:,i,j,k] = rmhd_core.prim_to_cons_rmhd(pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k],
-                                                          pr[3,i,j,k], pr[4,i,j,k], pr[5,i,j,k],
-                                                          pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k], rmhd_core.GAMMA)
+                U0[:,i,j,k] = rmhd_core.prim_to_cons_rmhd(
+                    pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k],
+                    pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k], rmhd_core.GAMMA
+                )
 
     rhs1 = compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng)
-    U1   = U0 + dt*rhs1
+    U1   = U0 + dt*rhs1[0:9]
 
     pr1 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = rmhd_core.cons_to_prim_rmhd(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k],
-                                                          U1[3,i,j,k], U1[4,i,j,k], U1[5,i,j,k],
-                                                          U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k])
+                pr1[0:9,i,j,k] = rmhd_core.cons_to_prim_rmhd(
+                    U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k],
+                    U1[5,i,j,k], U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k]
+                )
+    if npass > 0:
+        pr1[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] = (
+            pr[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] + dt*rhs1[9:9+npass]
+        )
 
     rhs2 = compute_rhs_grmhd(pr1, dx, dy, dz, offs_x, ng)
-    U2   = 0.5*(U0 + U1 + dt*rhs2)
+    U2   = 0.5*(U0 + U1 + dt*rhs2[0:9])
 
     out  = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = rmhd_core.cons_to_prim_rmhd(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k],
-                                                          U2[3,i,j,k], U2[4,i,j,k], U2[5,i,j,k],
-                                                          U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k])
+                out[0:9,i,j,k] = rmhd_core.cons_to_prim_rmhd(
+                    U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k],
+                    U2[5,i,j,k], U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k]
+                )
+    if npass > 0:
+        t0 = pr[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        t1 = pr1[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        out[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] = 0.5*(t0 + t1 + dt*rhs2[9:9+npass])
     return out
 
 def step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    npass = rmhd_core.N_PASSIVE
+    U0 = np.zeros((9, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                U0[:,i,j,k] = rmhd_core.prim_to_cons_rmhd(pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k],
-                                                          pr[3,i,j,k], pr[4,i,j,k], pr[5,i,j,k],
-                                                          pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k], rmhd_core.GAMMA)
+                U0[:,i,j,k] = rmhd_core.prim_to_cons_rmhd(
+                    pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k],
+                    pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k], rmhd_core.GAMMA
+                )
 
     rhs1 = compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng)
-    U1 = U0 + dt*rhs1
+    U1 = U0 + dt*rhs1[0:9]
 
     pr1 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = rmhd_core.cons_to_prim_rmhd(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k],
-                                                          U1[3,i,j,k], U1[4,i,j,k], U1[5,i,j,k],
-                                                          U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k])
+                pr1[0:9,i,j,k] = rmhd_core.cons_to_prim_rmhd(
+                    U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k],
+                    U1[5,i,j,k], U1[6,i,j,k], U1[7,i,j,k], U1[8,i,j,k]
+                )
+    if npass > 0:
+        pr1[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] = (
+            pr[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] + dt*rhs1[9:9+npass]
+        )
 
     rhs2 = compute_rhs_grmhd(pr1, dx, dy, dz, offs_x, ng)
-    U2 = 0.75*U0 + 0.25*(U1 + dt*rhs2)
+    U2 = 0.75*U0 + 0.25*(U1 + dt*rhs2[0:9])
 
     pr2 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr2[:,i,j,k] = rmhd_core.cons_to_prim_rmhd(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k],
-                                                          U2[3,i,j,k], U2[4,i,j,k], U2[5,i,j,k],
-                                                          U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k])
+                pr2[0:9,i,j,k] = rmhd_core.cons_to_prim_rmhd(
+                    U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k],
+                    U2[5,i,j,k], U2[6,i,j,k], U2[7,i,j,k], U2[8,i,j,k]
+                )
+    if npass > 0:
+        t0 = pr[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        t1 = pr1[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        pr2[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] = 0.75*t0 + 0.25*(t1 + dt*rhs2[9:9+npass])
 
     rhs3 = compute_rhs_grmhd(pr2, dx, dy, dz, offs_x, ng)
-    U3 = (1.0/3.0)*U0 + (2.0/3.0)*(U2 + dt*rhs3)
+    U3 = (1.0/3.0)*U0 + (2.0/3.0)*(U2 + dt*rhs3[0:9])
 
     out  = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = rmhd_core.cons_to_prim_rmhd(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k],
-                                                          U3[3,i,j,k], U3[4,i,j,k], U3[5,i,j,k],
-                                                          U3[6,i,j,k], U3[7,i,j,k], U3[8,i,j,k])
+                out[0:9,i,j,k] = rmhd_core.cons_to_prim_rmhd(
+                    U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k],
+                    U3[5,i,j,k], U3[6,i,j,k], U3[7,i,j,k], U3[8,i,j,k]
+                )
+    if npass > 0:
+        t0 = pr[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        t2 = pr2[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass]
+        out[rmhd_core.PASSIVE_OFFSET:rmhd_core.PASSIVE_OFFSET+npass] = (1.0/3.0)*t0 + (2.0/3.0)*(t2 + dt*rhs3[9:9+npass])
     return out
