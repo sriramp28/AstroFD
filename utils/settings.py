@@ -43,6 +43,13 @@ def load_settings():
         SN_GRAVITY_SOFTEN=0.01,
         SN_GRAVITY_CENTER=None,
         SN_GRAVITY_ENERGY=False,
+        # SN-lite heating/cooling
+        SN_HEATING_ENABLED=False,
+        SN_HEATING_MODEL="gain_spherical",
+        SN_HEATING_RATE=0.0,
+        SN_COOLING_RATE=0.0,
+        SN_GAIN_RADIUS=0.2,
+        SN_GAIN_WIDTH=0.1,
         # physics mode (RMHD scaffold)
         PHYSICS="hydro",      # "hydro" | "rmhd"
         GLM_CH=1.0,           # hyperbolic cleaning speed

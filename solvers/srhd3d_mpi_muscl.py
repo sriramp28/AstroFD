@@ -328,6 +328,7 @@ def main():
         pr = source_terms.apply_two_temperature(pr, dt, settings)
         pr = chemistry.apply_ion_chemistry(pr, dt, settings)
         pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG)
+        pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs[rank], NG)
 
         # update time, step count
         t += dt
