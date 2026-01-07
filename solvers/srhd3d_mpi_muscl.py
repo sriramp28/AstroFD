@@ -27,6 +27,7 @@ from core import grmhd_core
 from core import dissipation
 from core import source_terms
 from core import chemistry
+from core import gravity
 from core import boundary
 from core import nozzle
 
@@ -254,9 +255,10 @@ def main():
         # initial BCs
         boundary.apply_periodic_yz(pr, NG)
         if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0:      nozzle.apply_nozzle_left_x(
-            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-        )
+        if rank == 0 and PHYSICS != "sn":
+            nozzle.apply_nozzle_left_x(
+                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+            )
 
     # --- DEBUG: JIT warm-up ---
     if DEBUG:
@@ -275,7 +277,7 @@ def main():
     # --- time loop ---
     while t < T_END:
         # CFL timestep
-        if PHYSICS in ("hydro", "grhd"):
+        if PHYSICS in ("hydro", "grhd", "sn"):
             amax_local = srhd_core.max_char_speed(pr, pr.shape[1], pr.shape[2], pr.shape[3])
         else:
             amax_local = 1.0
@@ -293,7 +295,7 @@ def main():
         )
 
         # advance one step
-        if PHYSICS == "hydro":
+        if PHYSICS in ("hydro", "sn"):
             if RK_ORDER == 3:
                 pr = srhd_core.step_ssprk3(pr, dx, dy, dz, dt)
             else:
@@ -317,13 +319,15 @@ def main():
         # re-apply BCs after update
         boundary.apply_periodic_yz(pr, NG)
         if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0:      nozzle.apply_nozzle_left_x(
-            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-        )
+        if rank == 0 and PHYSICS != "sn":
+            nozzle.apply_nozzle_left_x(
+                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+            )
         pr = dissipation.apply_causal_dissipation(pr, dt, dx, dy, dz, settings)
         pr = source_terms.apply_cooling_heating(pr, dt, settings)
         pr = source_terms.apply_two_temperature(pr, dt, settings)
         pr = chemistry.apply_ion_chemistry(pr, dt, settings)
+        pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG)
 
         # update time, step count
         t += dt
@@ -358,7 +362,7 @@ def main():
                 for ci in range(N_CHEM):
                     name = CHEM_NAMES[ci] if ci < len(CHEM_NAMES) else f"chem{ci}"
                     tracer_fields[name] = pr[CHEM_OFFSET + ci]
-            if PHYSICS in ("hydro", "grhd"):
+            if PHYSICS in ("hydro", "grhd", "sn"):
                 if TRACER_OFFSET > 5:
                     np.savez(
                         fname,
@@ -390,7 +394,7 @@ def main():
             if rank == 0:
                 print(f"[io] wrote {fname}", flush=True)
 
-            if PHYSICS in ("hydro", "grhd"):
+            if PHYSICS in ("hydro", "grhd", "sn"):
                 global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, dt, amax, RUN_DIR,

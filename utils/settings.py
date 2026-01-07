@@ -35,6 +35,14 @@ def load_settings():
         RHO_AMB=1.0, P_AMB=None,
         VX_AMB=0.0, VY_AMB=0.0, VZ_AMB=0.0,
         P_MAX=1.0, V_MAX=0.999,
+        # SN-lite gravity (Newtonian source terms)
+        SN_GRAVITY_ENABLED=False,
+        SN_GRAVITY_MODEL="point_mass",
+        SN_GRAVITY_MASS=1.0,
+        SN_GRAVITY_G=1.0,
+        SN_GRAVITY_SOFTEN=0.01,
+        SN_GRAVITY_CENTER=None,
+        SN_GRAVITY_ENERGY=False,
         # physics mode (RMHD scaffold)
         PHYSICS="hydro",      # "hydro" | "rmhd"
         GLM_CH=1.0,           # hyperbolic cleaning speed
@@ -168,6 +176,22 @@ def load_settings():
         s["RECON"] = s["RECON"].lower()
     if isinstance(s.get("RIEMANN"), str):
         s["RIEMANN"] = s["RIEMANN"].lower()
+
+    if s.get("SN_GRAVITY_ENABLED", False):
+        if s.get("SN_GRAVITY_CENTER") is None:
+            s["SN_GRAVITY_CENTER"] = [0.5*s["Lx"], 0.5*s["Ly"], 0.5*s["Lz"]]
+        else:
+            gc = s["SN_GRAVITY_CENTER"]
+            if isinstance(gc, dict):
+                s["SN_GRAVITY_CENTER"] = [
+                    float(gc.get("x", 0.5*s["Lx"])),
+                    float(gc.get("y", 0.5*s["Ly"])),
+                    float(gc.get("z", 0.5*s["Lz"])),
+                ]
+            else:
+                if not (isinstance(gc, (list, tuple)) and len(gc) == 3):
+                    raise ValueError("SN_GRAVITY_CENTER must be [x,y,z] or {'x':..., 'y':..., 'z':...}")
+                s["SN_GRAVITY_CENTER"] = [float(gc[0]), float(gc[1]), float(gc[2])]
 
     # dissipation relaxation defaults
     if s.get("RELAX_TAU_BULK") is None:
