@@ -80,6 +80,15 @@ def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng, cfg):
                         pr[coff + 0, g, j, k] = float(cfg.get("CHEM_X_HII_NOZZLE", 0.0))
                         pr[coff + 1, g, j, k] = float(cfg.get("CHEM_X_HEII_NOZZLE", 0.0))
                         pr[coff + 2, g, j, k] = float(cfg.get("CHEM_X_HEIII_NOZZLE", 0.0))
+                if cfg.get("PHYSICS") == "sn":
+                    names = cfg.get("SN_COMP_NAMES", [])
+                    off = int(cfg.get("SN_COMP_OFFSET", 5))
+                    noz = cfg.get("SN_COMP_NOZZLE_VALUES", [])
+                    amb = cfg.get("SN_COMP_AMB_VALUES", [])
+                    for ci in range(len(names)):
+                        v_noz = noz[ci] if ci < len(noz) else 0.0
+                        v_amb = amb[ci] if ci < len(amb) else 0.0
+                        pr[off + ci, g, j, k] = v_amb + (v_noz - v_amb) * s
                 if cfg.get("PHYSICS") in ("rmhd", "grmhd"):
                     Bx = By = Bz = 0.0
                     if cfg.get("B_INIT") == "poloidal":

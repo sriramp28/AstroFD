@@ -17,7 +17,7 @@ def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng):
     x0, y0, z0 = float(center[0]), float(center[1]), float(center[2])
     v_max = float(cfg.get("V_MAX", 0.999))
     p_max = float(cfg.get("P_MAX", 1.0))
-    gamma = float(cfg.get("GAMMA", 5.0/3.0))
+    gamma = float(cfg.get("SN_EOS_GAMMA", cfg.get("GAMMA", 5.0/3.0)))
     energy_couple = bool(cfg.get("SN_GRAVITY_ENERGY", False))
 
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]

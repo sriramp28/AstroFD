@@ -50,6 +50,11 @@ def load_settings():
         SN_COOLING_RATE=0.0,
         SN_GAIN_RADIUS=0.2,
         SN_GAIN_WIDTH=0.1,
+        # SN-lite EOS + composition
+        SN_EOS_GAMMA=4.0/3.0,
+        SN_COMP_NAMES=None,
+        SN_COMP_AMB_VALUES=None,
+        SN_COMP_NOZZLE_VALUES=None,
         # physics mode (RMHD scaffold)
         PHYSICS="hydro",      # "hydro" | "rmhd"
         GLM_CH=1.0,           # hyperbolic cleaning speed
@@ -285,5 +290,23 @@ def load_settings():
     s["THERMO_OFFSET"] = base + s["N_TRACERS"]
     s["CHEM_OFFSET"] = base + s["N_TRACERS"] + s["N_THERMO"]
     s["CHEM_NAMES"] = ["xHII", "xHeII", "xHeIII"]
+
+    # SN-lite composition defaults (Ye, Xalpha)
+    if s.get("PHYSICS") == "sn":
+        if s.get("SN_COMP_NAMES") is None:
+            s["SN_COMP_NAMES"] = ["Ye", "Xalpha"]
+        names = s["SN_COMP_NAMES"]
+        if isinstance(names, str):
+            names = [n.strip() for n in names.split(",") if n.strip()]
+        s["SN_COMP_NAMES"] = names
+        s["SN_COMP_AMB_VALUES"] = _expand_tracer_values(s.get("SN_COMP_AMB_VALUES"), len(names), 0.5, 0.0)
+        s["SN_COMP_NOZZLE_VALUES"] = _expand_tracer_values(s.get("SN_COMP_NOZZLE_VALUES"), len(names), 0.5, 0.0)
+        s["SN_COMP_OFFSET"] = base
+        s["N_PASSIVE"] += len(names)
+    else:
+        s["SN_COMP_NAMES"] = []
+        s["SN_COMP_AMB_VALUES"] = []
+        s["SN_COMP_NOZZLE_VALUES"] = []
+        s["SN_COMP_OFFSET"] = base
 
     return s

@@ -32,6 +32,9 @@ from core import boundary
 from core import nozzle
 
 settings = load_settings()
+if settings.get("PHYSICS") == "sn":
+    # Override gamma for SN-lite EOS without affecting other modes.
+    settings["GAMMA"] = float(settings.get("SN_EOS_GAMMA", settings.get("GAMMA", 5.0/3.0)))
 srhd_core.configure(settings)
 rmhd_core.configure(settings)
 grhd_core.configure(settings)
@@ -65,7 +68,7 @@ DEBUG         = settings["DEBUG"]
 ASSERTS       = settings["ASSERTS"]
 CHECK_NAN_EVERY = settings["CHECK_NAN_EVERY"]
 
-PHYSICS      = settings.get("PHYSICS", "hydro")   # "hydro" | "rmhd"
+PHYSICS      = settings.get("PHYSICS", "hydro")   # "hydro" | "rmhd" | "sn"
 GLM_CH       = settings.get("GLM_CH", 1.0)
 GLM_CP       = settings.get("GLM_CP", 0.1)
 B_INIT       = settings.get("B_INIT", "none")     # "none" | "poloidal" | "toroidal"
@@ -84,6 +87,10 @@ THERMO_OFFSET = int(settings.get("THERMO_OFFSET", TRACER_OFFSET + N_TRACERS))
 N_CHEM = int(settings.get("N_CHEM", 0))
 CHEM_OFFSET = int(settings.get("CHEM_OFFSET", THERMO_OFFSET + N_THERMO))
 CHEM_NAMES = settings.get("CHEM_NAMES", ["xHII", "xHeII", "xHeIII"])
+SN_COMP_NAMES = settings.get("SN_COMP_NAMES", [])
+SN_COMP_AMB_VALUES = settings.get("SN_COMP_AMB_VALUES", [])
+SN_COMP_NOZZLE_VALUES = settings.get("SN_COMP_NOZZLE_VALUES", [])
+SN_COMP_OFFSET = int(settings.get("SN_COMP_OFFSET", TRACER_OFFSET))
 
 SMALL = 1e-12
  
@@ -130,12 +137,16 @@ def init_block(nx_loc, ny_loc, nz_loc):
     nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
         nv = 15
+    if PHYSICS == "sn":
+        nv = 5
     if N_TRACERS > 0:
         nv += N_TRACERS
     if N_THERMO > 0:
         nv += N_THERMO
     if N_CHEM > 0:
         nv += N_CHEM
+    if PHYSICS == "sn" and len(SN_COMP_NAMES) > 0:
+        nv += len(SN_COMP_NAMES)
     pr = np.zeros((nv, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
 
     # base hydro fields
@@ -161,6 +172,9 @@ def init_block(nx_loc, ny_loc, nz_loc):
         pr[CHEM_OFFSET + 0, :, :, :] = float(settings.get("CHEM_X_HII_AMB", 0.0))
         pr[CHEM_OFFSET + 1, :, :, :] = float(settings.get("CHEM_X_HEII_AMB", 0.0))
         pr[CHEM_OFFSET + 2, :, :, :] = float(settings.get("CHEM_X_HEIII_AMB", 0.0))
+    if PHYSICS == "sn" and len(SN_COMP_NAMES) > 0:
+        for ci, val in enumerate(SN_COMP_AMB_VALUES):
+            pr[SN_COMP_OFFSET + ci, :, :, :] = val
     return pr
 
 def latest_run_dir(base="results"):
