@@ -558,6 +558,27 @@ def riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
     return hlle(UL, UR, FL, FR, sL, sR)
 
 @nb.njit(fastmath=True)
+def hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vL, vR):
+    DL = UL[0]; SxL = UL[1]; SyL = UL[2]; SzL = UL[3]
+    DR = UR[0]; SxR = UR[1]; SyR = UR[2]; SzR = UR[3]
+    denom = (DL*(sL - vL) - DR*(sR - vR)) + SMALL
+    return (pR - pL + SxL*(sL - vL) - SxR*(sR - vR)) / denom
+
+@nb.njit(fastmath=True)
+def hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vL, vR):
+    DL = UL[0]; SxL = UL[1]; SyL = UL[2]; SzL = UL[3]
+    DR = UR[0]; SxR = UR[1]; SyR = UR[2]; SzR = UR[3]
+    denom = (DL*(sL - vL) - DR*(sR - vR)) + SMALL
+    return (pR - pL + SyL*(sL - vL) - SyR*(sR - vR)) / denom
+
+@nb.njit(fastmath=True)
+def hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vL, vR):
+    DL = UL[0]; SxL = UL[1]; SyL = UL[2]; SzL = UL[3]
+    DR = UR[0]; SxR = UR[1]; SyR = UR[2]; SzR = UR[3]
+    denom = (DL*(sL - vL) - DR*(sR - vR)) + SMALL
+    return (pR - pL + SzL*(sL - vL) - SzR*(sR - vR)) / denom
+
+@nb.njit(fastmath=True)
 def riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
     if RIEMANN_ID == 1:
         hllc = hllc_hydro_flux_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
@@ -627,7 +648,38 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vxL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vxR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
+                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
+                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
+                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
+                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
+                sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FxL = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxL[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxL[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxL[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     FxL_tr = np.empty(N_TRACERS)
                     for t in range(N_TRACERS):
@@ -685,6 +737,27 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
                 FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL2, sR2, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxR[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL2, sR2, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxR[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_x(UL, UR, sL2, sR2, pL, pR, vxL, vxR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FxR[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
@@ -747,6 +820,27 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = rmhd_eig_speeds(vyR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyD[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyD[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyD[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     FyD_tr = np.empty(N_TRACERS)
                     for t in range(N_TRACERS):
@@ -803,6 +897,27 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
                 FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL2, sR2, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyU[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL2, sR2, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyU[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_y(UL, UR, sL2, sR2, pL, pR, vyL, vyR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_y(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_y(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FyU[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
@@ -865,6 +980,27 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = rmhd_eig_speeds(vzR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzB[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzB[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzB[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     FzB_tr = np.empty(N_TRACERS)
                     for t in range(N_TRACERS):
@@ -921,6 +1057,27 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
                 FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL2, sR2, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzF[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL2, sR2, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzF[5:9] = Fm[5:9]
+                if RIEMANN_ID == 1:
+                    sM = hllc_contact_speed_z(UL, UR, sL2, sR2, pL, pR, vzL, vzR)
+                    if sM >= 0.0:
+                        Fm = flux_rmhd_z(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
+                    else:
+                        Fm = flux_rmhd_z(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
+                    FzF[5:9] = Fm[5:9]
                 if N_TRACERS > 0:
                     for t in range(N_TRACERS):
                         idx = TRACER_OFFSET + t
