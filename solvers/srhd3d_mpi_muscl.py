@@ -72,6 +72,10 @@ CHECKPOINT_EVERY = int(settings.get("CHECKPOINT_EVERY", 0))
 RESTART_PATH = settings.get("RESTART_PATH")
 DISSIPATION_ENABLED = settings.get("DISSIPATION_ENABLED", False)
 BULK_ZETA = settings.get("BULK_ZETA", 0.0)
+N_TRACERS = int(settings.get("N_TRACERS", 0))
+TRACER_OFFSET = int(settings.get("TRACER_OFFSET", 5))
+TRACER_NAMES = settings.get("TRACER_NAMES", [])
+TRACER_AMB_VALUES = settings.get("TRACER_AMB_VALUES", [])
 
 SMALL = 1e-12
  
@@ -118,6 +122,8 @@ def init_block(nx_loc, ny_loc, nz_loc):
     nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
         nv = 15
+    if N_TRACERS > 0:
+        nv += N_TRACERS
     pr = np.zeros((nv, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
 
     # base hydro fields
@@ -130,6 +136,10 @@ def init_block(nx_loc, ny_loc, nz_loc):
         pr[5:, :, :, :] = 0.0
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
         pr[5:, :, :, :] = 0.0
+    if N_TRACERS > 0:
+        for t in range(N_TRACERS):
+            val = TRACER_AMB_VALUES[t] if t < len(TRACER_AMB_VALUES) else 0.0
+            pr[TRACER_OFFSET + t, :, :, :] = val
     return pr
 
 def latest_run_dir(base="results"):
@@ -312,14 +322,21 @@ def main():
         # output + diagnostics
         if step % OUT_EVERY == 0 or abs(t - T_END) < 1e-14:
             fname = os.path.join(RUN_DIR, f"jet3d_rank{rank:04d}_step{step:06d}.npz")
+            tracer_fields = {}
+            if N_TRACERS > 0:
+                for ti in range(N_TRACERS):
+                    name = TRACER_NAMES[ti] if ti < len(TRACER_NAMES) else f"tracer{ti}"
+                    tracer_fields[name] = pr[TRACER_OFFSET + ti]
+                tracer_fields["tracer_names"] = np.array(TRACER_NAMES, dtype=object)
             if PHYSICS in ("hydro", "grhd"):
-                if pr.shape[0] > 5:
+                if TRACER_OFFSET > 5:
                     np.savez(
                         fname,
                         rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
                         pi=pr[5], pixx=pr[6], piyy=pr[7], pizz=pr[8],
                         pixy=pr[9], pixz=pr[10], piyz=pr[11],
                         qx=pr[12], qy=pr[13], qz=pr[14],
+                        **tracer_fields,
                         meta = np.array([dx, dy, dz, t], dtype=np.float64),
                         comment = "3D SRHD/GRHD block (with ghosts)."
                     )
@@ -327,6 +344,7 @@ def main():
                     np.savez(
                         fname,
                         rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
+                        **tracer_fields,
                         meta = np.array([dx, dy, dz, t], dtype=np.float64),
                         comment = "3D SRHD/GRHD block (with ghosts)."
                     )
@@ -335,6 +353,7 @@ def main():
                     fname,
                     rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
                     Bx = pr[5], By=pr[6], Bz=pr[7], psi=pr[8],
+                    **tracer_fields,
                     meta = np.array([dx, dy, dz, t], dtype=np.float64),
                     comment = "3D RMHD/GRMHD block (with ghosts)."
                 )

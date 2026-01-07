@@ -12,10 +12,12 @@ LIMITER_ID = 0  # 0=mc, 1=minmod, 2=vanleer
 RECON_ID = 0    # 0=muscl, 1=ppm, 2=weno
 RIEMANN_ID = 0  # 0=hlle, 1=hllc
 SMALL = 1e-12
+N_TRACERS = 0
+TRACER_OFFSET = 5
 
 def configure(params):
     """Set global parameters for Numba-compiled kernels."""
-    global GAMMA, P_MAX, V_MAX, LIMITER_ID, RECON_ID, RIEMANN_ID
+    global GAMMA, P_MAX, V_MAX, LIMITER_ID, RECON_ID, RIEMANN_ID, N_TRACERS, TRACER_OFFSET
     GAMMA = float(params.get("GAMMA", GAMMA))
     P_MAX = float(params.get("P_MAX", P_MAX))
     V_MAX = float(params.get("V_MAX", V_MAX))
@@ -35,6 +37,8 @@ def configure(params):
         RECON_ID = 0
     riemann = str(params.get("RIEMANN", "hlle")).lower()
     RIEMANN_ID = 1 if riemann == "hllc" else 0
+    N_TRACERS = int(params.get("N_TRACERS", N_TRACERS))
+    TRACER_OFFSET = int(params.get("TRACER_OFFSET", TRACER_OFFSET))
 
 # ------------------------
 # SRHD helpers (Numba)
@@ -172,6 +176,14 @@ def hlle(UL, UR, FL, FR, sL, sR):
         return FR
     else:
         return (sR*FL - sL*FR + sL*sR*(UR-UL)) / (sR - sL + SMALL)
+
+@nb.njit(fastmath=True)
+def hlle_scalar(qL, qR, fL, fR, sL, sR):
+    if sL >= 0.0:
+        return fL
+    if sR <= 0.0:
+        return fR
+    return (sR*fL - sL*fR + sL*sR*(qR - qL)) / (sR - sL + SMALL)
 
 @nb.njit(fastmath=True)
 def hllc_flux_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
@@ -380,7 +392,7 @@ def floor_prim(rho, vx, vy, vz, p):
 
 @nb.njit(fastmath=True)
 def add_pi_lr(pr, pL, pR, iL, jL, kL, iR, jR, kR):
-    if pr.shape[0] == 6:
+    if TRACER_OFFSET > 5:
         pL += pr[5, iL, jL, kL]
         pR += pr[5, iR, jR, kR]
     return pL, pR
@@ -460,7 +472,7 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
     IMPORTANT: loops start at 2 and stop at N-2 so all i±2, j±2, k±2 are in-bounds.
     Requires NG >= 2 ghost layers.
     """
-    rhs = np.zeros((5, nx, ny, nz))
+    rhs = np.zeros((5 + N_TRACERS, nx, ny, nz))
 
     i0, i1 = 2, nx-3
     j0, j1 = 2, ny-3
@@ -535,6 +547,37 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = eig_speeds(vxR, csR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FxL = riemann_flux_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                if N_TRACERS > 0:
+                    FxL_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i-3,j,k], pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k])
+                        tRq = weno5_right(pr[idx,i+2,j,k], pr[idx,i+1,j,k], pr[idx,i,j,k], pr[idx,i-1,j,k], pr[idx,i-2,j,k])
+                        FxL_tr[t] = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
+                if N_TRACERS > 0:
+                    FxL_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_im1, r_im1 = ppm_reconstruct(pr[idx,i-3,j,k], pr[idx,i-2,j,k], pr[idx,i-1,j,k],
+                                                       pr[idx,i-0,j,k], pr[idx,i+1,j,k])
+                        l_i, r_i = ppm_reconstruct(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k],
+                                                   pr[idx,i+1,j,k], pr[idx,i+2,j,k])
+                        tLq = r_im1
+                        tRq = l_i
+                        FxL_tr[t] = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL, sR)
+                if N_TRACERS > 0:
+                    FxL_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i-1, j, k] - pr[idx, i-2, j, k]
+                        dqR_t = pr[idx, i,   j, k] - pr[idx, i-1, j, k]
+                        slL_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i,   j, k] - pr[idx, i-1, j, k]
+                        dqR_t = pr[idx, i+1, j, k] - pr[idx, i,   j, k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tL = pr[idx, i-1, j, k] + 0.5*slL_t
+                        tR = pr[idx, i,   j, k] - 0.5*slR_t
+                        FxL_tr[t] = hlle_scalar(tL, tR, tL*vxL, tR*vxR, sL, sR)
 
                 # right face (i+1/2): need slopes centered at i+1
                 dqL_r = pr[0,i+1,j,k] - pr[0,i  ,j,k]
@@ -584,8 +627,39 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = eig_speeds(vxR, csR)
                 sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
                 FxR = riemann_flux_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k], pr[idx,i+2,j,k])
+                        tRq = weno5_right(pr[idx,i+3,j,k], pr[idx,i+2,j,k], pr[idx,i+1,j,k], pr[idx,i,j,k], pr[idx,i-1,j,k])
+                        FxR_tr = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL2, sR2)
+                        rhs[5 + t, i, j, k] -= (FxR_tr - FxL_tr[t]) / dx
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_i, r_i = ppm_reconstruct(pr[idx,i-2,j,k], pr[idx,i-1,j,k], pr[idx,i,j,k],
+                                                   pr[idx,i+1,j,k], pr[idx,i+2,j,k])
+                        l_ip1, r_ip1 = ppm_reconstruct(pr[idx,i-1,j,k], pr[idx,i,j,k], pr[idx,i+1,j,k],
+                                                       pr[idx,i+2,j,k], pr[idx,i+3,j,k])
+                        tLq = r_i
+                        tRq = l_ip1
+                        FxR_tr = hlle_scalar(tLq, tRq, tLq*vxL, tRq*vxR, sL2, sR2)
+                        rhs[5 + t, i, j, k] -= (FxR_tr - FxL_tr[t]) / dx
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i+1, j, k] - pr[idx, i,   j, k]
+                        dqR_t = pr[idx, i+2, j, k] - pr[idx, i+1, j, k]
+                        slRp1_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i,   j, k] - pr[idx, i-1, j, k]
+                        dqR_t = pr[idx, i+1, j, k] - pr[idx, i,   j, k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tL = pr[idx, i,   j, k] + 0.5*slR_t
+                        tR = pr[idx, i+1, j, k] - 0.5*slRp1_t
+                        FxR_tr = hlle_scalar(tL, tR, tL*vxL, tR*vxR, sL2, sR2)
+                        rhs[5 + t, i, j, k] -= (FxR_tr - FxL_tr[t]) / dx
 
-                rhs[:,i,j,k] -= (FxR - FxL)/dx
+                rhs[0:5,i,j,k] -= (FxR - FxL)/dx
 
     # Y faces
     for i in range(i0, i1):
@@ -702,7 +776,7 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
                 FyU = riemann_flux_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
 
-                rhs[:,i,j,k] -= (FyU - FyD)/dy
+                rhs[0:5,i,j,k] -= (FyU - FyD)/dy
 
     # Z faces
     for i in range(i0, i1):
@@ -770,6 +844,19 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = eig_speeds(vzR, csR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
                 FzB = riemann_flux_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                if N_TRACERS > 0:
+                    FzB_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i, j, k-1] - pr[idx, i, j, k-2]
+                        dqR_t = pr[idx, i, j, k]   - pr[idx, i, j, k-1]
+                        slL_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i, j, k]   - pr[idx, i, j, k-1]
+                        dqR_t = pr[idx, i, j, k+1] - pr[idx, i, j, k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tLq = pr[idx, i, j, k-1] + 0.5*slL_t
+                        tRq = pr[idx, i, j, k]   - 0.5*slR_t
+                        FzB_tr[t] = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL, sR)
 
                 dqL_r = pr[0,i,j,k+1] - pr[0,i,j,k  ]
                 dqR_r = pr[0,i,j,k+2] - pr[0,i,j,k+1]
@@ -818,14 +905,27 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 lmR, lpR = eig_speeds(vzR, csR)
                 sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
                 FzF = riemann_flux_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i, j, k+1] - pr[idx, i, j, k]
+                        dqR_t = pr[idx, i, j, k+2] - pr[idx, i, j, k+1]
+                        slRp1_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i, j, k]   - pr[idx, i, j, k-1]
+                        dqR_t = pr[idx, i, j, k+1] - pr[idx, i, j, k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tLq = pr[idx, i, j, k]   + 0.5*slR_t
+                        tRq = pr[idx, i, j, k+1] - 0.5*slRp1_t
+                        FzF_tr = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, sL2, sR2)
+                        rhs[5 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
 
-                rhs[:,i,j,k] -= (FzF - FzB)/dz
+                rhs[0:5,i,j,k] -= (FzF - FzB)/dz
 
     return rhs
 
 @nb.njit(parallel=True, fastmath=True)
 def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
-    rhs = np.zeros((5,nx,ny,nz))
+    rhs = np.zeros((5 + N_TRACERS, nx, ny, nz))
     i0, i1 = 3, nx-3
     j0, j1 = 3, ny-3
     k0, k1 = 3, nz-3
@@ -877,7 +977,7 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 sL2 = min(lamLm, lamRm); sR2 = max(lamLp, lamRp)
                 FxR = riemann_flux_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
 
-                rhs[:,i,j,k] -= (FxR - FxL)/dx
+                rhs[0:5,i,j,k] -= (FxR - FxL)/dx
 
                 # y faces
                 for v in range(5):
@@ -904,6 +1004,37 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lamLm, lamLp = eig_speeds(vyL, csL); lamRm, lamRp = eig_speeds(vyR, csR)
                 tL = min(lamLm, lamRm); tR = max(lamLp, lamRp)
                 FyD = riemann_flux_y(UL, UR, FL, FR, tL, tR, pL, pR, vyL, vyR)
+                if N_TRACERS > 0:
+                    FyD_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i,j-3,k], pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k])
+                        tRq = weno5_right(pr[idx,i,j+2,k], pr[idx,i,j+1,k], pr[idx,i,j,k], pr[idx,i,j-1,k], pr[idx,i,j-2,k])
+                        FyD_tr[t] = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL, tR)
+                if N_TRACERS > 0:
+                    FyD_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_jm1, r_jm1 = ppm_reconstruct(pr[idx,i,j-3,k], pr[idx,i,j-2,k], pr[idx,i,j-1,k],
+                                                       pr[idx,i,j-0,k], pr[idx,i,j+1,k])
+                        l_j, r_j = ppm_reconstruct(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k],
+                                                   pr[idx,i,j+1,k], pr[idx,i,j+2,k])
+                        tLq = r_jm1
+                        tRq = l_j
+                        FyD_tr[t] = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL, tR)
+                if N_TRACERS > 0:
+                    FyD_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i, j-1, k] - pr[idx, i, j-2, k]
+                        dqR_t = pr[idx, i, j,   k] - pr[idx, i, j-1, k]
+                        slL_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i, j,   k] - pr[idx, i, j-1, k]
+                        dqR_t = pr[idx, i, j+1, k] - pr[idx, i, j,   k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tLq = pr[idx, i, j-1, k] + 0.5*slL_t
+                        tRq = pr[idx, i, j,   k] - 0.5*slR_t
+                        FyD_tr[t] = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL, tR)
 
                 rL,vxL,vyL,vzL,pL = floor_prim(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4])
                 rR,vxR,vyR,vzR,pR = floor_prim(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4])
@@ -917,8 +1048,39 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lamLm, lamLp = eig_speeds(vyL, csL); lamRm, lamRp = eig_speeds(vyR, csR)
                 tL2 = min(lamLm, lamRm); tR2 = max(lamLp, lamRp)
                 FyU = riemann_flux_y(UL, UR, FL, FR, tL2, tR2, pL, pR, vyL, vyR)
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k], pr[idx,i,j+2,k])
+                        tRq = weno5_right(pr[idx,i,j+3,k], pr[idx,i,j+2,k], pr[idx,i,j+1,k], pr[idx,i,j,k], pr[idx,i,j-1,k])
+                        FyU_tr = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL2, tR2)
+                        rhs[5 + t, i, j, k] -= (FyU_tr - FyD_tr[t]) / dy
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_j, r_j = ppm_reconstruct(pr[idx,i,j-2,k], pr[idx,i,j-1,k], pr[idx,i,j,k],
+                                                   pr[idx,i,j+1,k], pr[idx,i,j+2,k])
+                        l_jp1, r_jp1 = ppm_reconstruct(pr[idx,i,j-1,k], pr[idx,i,j,k], pr[idx,i,j+1,k],
+                                                       pr[idx,i,j+2,k], pr[idx,i,j+3,k])
+                        tLq = r_j
+                        tRq = l_jp1
+                        FyU_tr = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL2, tR2)
+                        rhs[5 + t, i, j, k] -= (FyU_tr - FyD_tr[t]) / dy
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        dqL_t = pr[idx, i, j+1, k] - pr[idx, i, j,   k]
+                        dqR_t = pr[idx, i, j+2, k] - pr[idx, i, j+1, k]
+                        slRp1_t = mc_lim(dqL_t, dqR_t)
+                        dqL_t = pr[idx, i, j,   k] - pr[idx, i, j-1, k]
+                        dqR_t = pr[idx, i, j+1, k] - pr[idx, i, j,   k]
+                        slR_t = mc_lim(dqL_t, dqR_t)
+                        tLq = pr[idx, i, j,   k] + 0.5*slR_t
+                        tRq = pr[idx, i, j+1, k] - 0.5*slRp1_t
+                        FyU_tr = hlle_scalar(tLq, tRq, tLq*vyL, tRq*vyR, tL2, tR2)
+                        rhs[5 + t, i, j, k] -= (FyU_tr - FyD_tr[t]) / dy
 
-                rhs[:,i,j,k] -= (FyU - FyD)/dy
+                rhs[0:5,i,j,k] -= (FyU - FyD)/dy
 
                 # z faces
                 for v in range(5):
@@ -945,6 +1107,24 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lamLm, lamLp = eig_speeds(vzL, csL); lamRm, lamRp = eig_speeds(vzR, csR)
                 uL = min(lamLm, lamRm); uR = max(lamLp, lamRp)
                 FzB = riemann_flux_z(UL, UR, FL, FR, uL, uR, pL, pR, vzL, vzR)
+                if N_TRACERS > 0:
+                    FzB_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i,j,k-3], pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1])
+                        tRq = weno5_right(pr[idx,i,j,k+2], pr[idx,i,j,k+1], pr[idx,i,j,k], pr[idx,i,j,k-1], pr[idx,i,j,k-2])
+                        FzB_tr[t] = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, uL, uR)
+                if N_TRACERS > 0:
+                    FzB_tr = np.empty(N_TRACERS)
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_km1, r_km1 = ppm_reconstruct(pr[idx,i,j,k-3], pr[idx,i,j,k-2], pr[idx,i,j,k-1],
+                                                       pr[idx,i,j,k-0], pr[idx,i,j,k+1])
+                        l_k, r_k = ppm_reconstruct(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k],
+                                                   pr[idx,i,j,k+1], pr[idx,i,j,k+2])
+                        tLq = r_km1
+                        tRq = l_k
+                        FzB_tr[t] = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, uL, uR)
 
                 rL,vxL,vyL,vzL,pL = floor_prim(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4])
                 rR,vxR,vyR,vzR,pR = floor_prim(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4])
@@ -958,8 +1138,26 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lamLm, lamLp = eig_speeds(vzL, csL); lamRm, lamRp = eig_speeds(vzR, csR)
                 uL2 = min(lamLm, lamRm); uR2 = max(lamLp, lamRp)
                 FzF = riemann_flux_z(UL, UR, FL, FR, uL2, uR2, pL, pR, vzL, vzR)
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        tLq = weno5_left(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1], pr[idx,i,j,k+2])
+                        tRq = weno5_right(pr[idx,i,j,k+3], pr[idx,i,j,k+2], pr[idx,i,j,k+1], pr[idx,i,j,k], pr[idx,i,j,k-1])
+                        FzF_tr = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, uL2, uR2)
+                        rhs[5 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
+                if N_TRACERS > 0:
+                    for t in range(N_TRACERS):
+                        idx = TRACER_OFFSET + t
+                        l_k, r_k = ppm_reconstruct(pr[idx,i,j,k-2], pr[idx,i,j,k-1], pr[idx,i,j,k],
+                                                   pr[idx,i,j,k+1], pr[idx,i,j,k+2])
+                        l_kp1, r_kp1 = ppm_reconstruct(pr[idx,i,j,k-1], pr[idx,i,j,k], pr[idx,i,j,k+1],
+                                                       pr[idx,i,j,k+2], pr[idx,i,j,k+3])
+                        tLq = r_k
+                        tRq = l_kp1
+                        FzF_tr = hlle_scalar(tLq, tRq, tLq*vzL, tRq*vzR, uL2, uR2)
+                        rhs[5 + t, i, j, k] -= (FzF_tr - FzB_tr[t]) / dz
 
-                rhs[:,i,j,k] -= (FzF - FzB)/dz
+                rhs[0:5,i,j,k] -= (FzF - FzB)/dz
 
     return rhs
 # ------------------------
@@ -967,7 +1165,7 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
 # ------------------------
 @nb.njit(parallel=True, fastmath=True)
 def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
-    rhs = np.zeros((5,nx,ny,nz))
+    rhs = np.zeros((5 + N_TRACERS, nx, ny, nz))
     i0, i1 = 3, nx-3
     j0, j1 = 3, ny-3
     k0, k1 = 3, nz-3
@@ -1005,7 +1203,7 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 sL2 = min(lamLm, lamRm); sR2 = max(lamLp, lamRp)
                 FxR = riemann_flux_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
 
-                rhs[:,i,j,k] -= (FxR - FxL)/dx
+                rhs[0:5,i,j,k] -= (FxR - FxL)/dx
 
                 # y faces
                 for v in range(5):
@@ -1032,7 +1230,7 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 tL2 = min(lamLm, lamRm); tR2 = max(lamLp, lamRp)
                 FyU = riemann_flux_y(UL, UR, FL, FR, tL2, tR2, pL, pR, vyL, vyR)
 
-                rhs[:,i,j,k] -= (FyU - FyD)/dy
+                rhs[0:5,i,j,k] -= (FyU - FyD)/dy
 
                 # z faces
                 for v in range(5):
@@ -1059,7 +1257,7 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 uL2 = min(lamLm, lamRm); uR2 = max(lamLp, lamRp)
                 FzF = riemann_flux_z(UL, UR, FL, FR, uL2, uR2, pL, pR, vzL, vzR)
 
-                rhs[:,i,j,k] -= (FzF - FzB)/dz
+                rhs[0:5,i,j,k] -= (FzF - FzB)/dz
 
     return rhs
 
@@ -1087,6 +1285,7 @@ def max_char_speed(pr, nx, ny, nz):
 # ------------------------
 def step_ssprk2(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    nt = N_TRACERS
     U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
@@ -1099,15 +1298,17 @@ def step_ssprk2(pr, dx, dy, dz, dt):
         rhs1 = compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz)
     else:
         rhs1 = compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz)
-    U1   = U0 + dt*rhs1
+    U1   = U0 + dt*rhs1[0:5]
 
     pr1 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
                 pr1[0:5,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
-    if pr.shape[0] > 5:
-        pr1[5:] = pr[5:]
+    if pr.shape[0] > 5 and TRACER_OFFSET > 5:
+        pr1[5:TRACER_OFFSET] = pr[5:TRACER_OFFSET]
+    if nt > 0:
+        pr1[TRACER_OFFSET:TRACER_OFFSET+nt] = pr[TRACER_OFFSET:TRACER_OFFSET+nt] + dt*rhs1[5:5+nt]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1115,19 +1316,24 @@ def step_ssprk2(pr, dx, dy, dz, dt):
         rhs2 = compute_rhs_weno(pr1, nx, ny, nz, dx, dy, dz)
     else:
         rhs2 = compute_rhs_muscl(pr1, nx, ny, nz, dx, dy, dz)
-    U2   = 0.5*(U0 + U1 + dt*rhs2)
+    U2   = 0.5*(U0 + U1 + dt*rhs2[0:5])
 
     out  = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
                 out[0:5,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
-    if pr.shape[0] > 5:
-        out[5:] = pr1[5:]
+    if pr.shape[0] > 5 and TRACER_OFFSET > 5:
+        out[5:TRACER_OFFSET] = pr1[5:TRACER_OFFSET]
+    if nt > 0:
+        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
+        t1 = pr1[TRACER_OFFSET:TRACER_OFFSET+nt]
+        out[TRACER_OFFSET:TRACER_OFFSET+nt] = 0.5*(t0 + t1 + dt*rhs2[5:5+nt])
     return out
 
 def step_ssprk3(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    nt = N_TRACERS
     U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
@@ -1140,15 +1346,17 @@ def step_ssprk3(pr, dx, dy, dz, dt):
         rhs1 = compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz)
     else:
         rhs1 = compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz)
-    U1 = U0 + dt*rhs1
+    U1 = U0 + dt*rhs1[0:5]
 
     pr1 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
                 pr1[0:5,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
-    if pr.shape[0] > 5:
-        pr1[5:] = pr[5:]
+    if pr.shape[0] > 5 and TRACER_OFFSET > 5:
+        pr1[5:TRACER_OFFSET] = pr[5:TRACER_OFFSET]
+    if nt > 0:
+        pr1[TRACER_OFFSET:TRACER_OFFSET+nt] = pr[TRACER_OFFSET:TRACER_OFFSET+nt] + dt*rhs1[5:5+nt]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1156,15 +1364,19 @@ def step_ssprk3(pr, dx, dy, dz, dt):
         rhs2 = compute_rhs_weno(pr1, nx, ny, nz, dx, dy, dz)
     else:
         rhs2 = compute_rhs_muscl(pr1, nx, ny, nz, dx, dy, dz)
-    U2 = 0.75*U0 + 0.25*(U1 + dt*rhs2)
+    U2 = 0.75*U0 + 0.25*(U1 + dt*rhs2[0:5])
 
     pr2 = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
                 pr2[0:5,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
-    if pr.shape[0] > 5:
-        pr2[5:] = pr1[5:]
+    if pr.shape[0] > 5 and TRACER_OFFSET > 5:
+        pr2[5:TRACER_OFFSET] = pr1[5:TRACER_OFFSET]
+    if nt > 0:
+        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
+        t1 = pr1[TRACER_OFFSET:TRACER_OFFSET+nt]
+        pr2[TRACER_OFFSET:TRACER_OFFSET+nt] = 0.75*t0 + 0.25*(t1 + dt*rhs2[5:5+nt])
 
     if RECON_ID == 1:
         rhs3 = compute_rhs_ppm(pr2, nx, ny, nz, dx, dy, dz)
@@ -1172,13 +1384,17 @@ def step_ssprk3(pr, dx, dy, dz, dt):
         rhs3 = compute_rhs_weno(pr2, nx, ny, nz, dx, dy, dz)
     else:
         rhs3 = compute_rhs_muscl(pr2, nx, ny, nz, dx, dy, dz)
-    U3 = (1.0/3.0)*U0 + (2.0/3.0)*(U2 + dt*rhs3)
+    U3 = (1.0/3.0)*U0 + (2.0/3.0)*(U2 + dt*rhs3[0:5])
 
     out = np.zeros_like(pr)
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
                 out[0:5,i,j,k] = cons_to_prim(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k])
-    if pr.shape[0] > 5:
-        out[5:] = pr2[5:]
+    if pr.shape[0] > 5 and TRACER_OFFSET > 5:
+        out[5:TRACER_OFFSET] = pr2[5:TRACER_OFFSET]
+    if nt > 0:
+        t0 = pr[TRACER_OFFSET:TRACER_OFFSET+nt]
+        t2 = pr2[TRACER_OFFSET:TRACER_OFFSET+nt]
+        out[TRACER_OFFSET:TRACER_OFFSET+nt] = (1.0/3.0)*t0 + (2.0/3.0)*(t2 + dt*rhs3[5:5+nt])
     return out

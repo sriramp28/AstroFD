@@ -58,6 +58,15 @@ def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng, cfg):
                 pr[4, g, j, k] = p
                 if pr.shape[0] >= 15:
                     pr[5:15, g, j, k] = 0.0
+                ntr = int(cfg.get("N_TRACERS", 0))
+                if ntr > 0:
+                    off = int(cfg.get("TRACER_OFFSET", 5))
+                    nozzle_vals = cfg.get("TRACER_NOZZLE_VALUES", [])
+                    amb_vals = cfg.get("TRACER_AMB_VALUES", [])
+                    for t in range(ntr):
+                        t_noz = nozzle_vals[t] if t < len(nozzle_vals) else (1.0 if t == 0 else 0.0)
+                        t_amb = amb_vals[t] if t < len(amb_vals) else 0.0
+                        pr[off + t, g, j, k] = t_amb + (t_noz - t_amb) * s
                 if cfg.get("PHYSICS") in ("rmhd", "grmhd"):
                     Bx = By = Bz = 0.0
                     if cfg.get("B_INIT") == "poloidal":

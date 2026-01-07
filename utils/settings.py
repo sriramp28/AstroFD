@@ -56,6 +56,11 @@ def load_settings():
         RELAX_TAU_SHEAR=None,
         RELAX_TAU_HEAT=None,
         DISSIPATION_CAP_FRAC=0.5,
+        # tracers
+        N_TRACERS=0,
+        TRACER_NAMES=None,
+        TRACER_NOZZLE_VALUES=None,
+        TRACER_AMB_VALUES=None,
         # results
         RESULTS_UNIQUE=False,
         # debug
@@ -141,5 +146,47 @@ def load_settings():
         s["RELAX_TAU_SHEAR"] = s.get("RELAX_TAU", 0.1)
     if s.get("RELAX_TAU_HEAT") is None:
         s["RELAX_TAU_HEAT"] = s.get("RELAX_TAU", 0.1)
+
+    # tracer normalization
+    ntr = int(s.get("N_TRACERS", 0))
+    if ntr < 0:
+        raise ValueError("N_TRACERS must be >= 0.")
+    s["N_TRACERS"] = ntr
+    names = s.get("TRACER_NAMES")
+    if isinstance(names, str):
+        names = [n.strip() for n in names.split(",") if n.strip()]
+    if names is None:
+        names = []
+    if len(names) < ntr:
+        for i in range(len(names), ntr):
+            names.append(f"tracer{i}")
+    s["TRACER_NAMES"] = names[:ntr]
+
+    def _expand_tracer_values(val, n, default_first, default_rest):
+        if val is None:
+            if n == 0:
+                return []
+            out = [default_first]
+            for _ in range(1, n):
+                out.append(default_rest)
+            return out
+        if isinstance(val, (int, float)):
+            return [float(val)] * n
+        if isinstance(val, (list, tuple)):
+            out = [float(v) for v in val]
+            if len(out) < n:
+                out.extend([out[-1]] * (n - len(out)))
+            return out[:n]
+        return [default_first] + [default_rest] * max(0, n-1)
+
+    s["TRACER_NOZZLE_VALUES"] = _expand_tracer_values(s.get("TRACER_NOZZLE_VALUES"), ntr, 1.0, 0.0)
+    s["TRACER_AMB_VALUES"] = _expand_tracer_values(s.get("TRACER_AMB_VALUES"), ntr, 0.0, 0.0)
+
+    # tracer offset (base variables + optional dissipation)
+    if s.get("PHYSICS") in ("rmhd", "grmhd"):
+        base = 9
+    else:
+        base = 15 if s.get("DISSIPATION_ENABLED", False) else 5
+    s["TRACER_OFFSET"] = base
 
     return s
