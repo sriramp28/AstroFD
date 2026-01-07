@@ -380,10 +380,74 @@ def floor_prim(rho, vx, vy, vz, p):
 
 @nb.njit(fastmath=True)
 def add_pi_lr(pr, pL, pR, iL, jL, kL, iR, jR, kR):
-    if pr.shape[0] > 5:
+    if pr.shape[0] == 6:
         pL += pr[5, iL, jL, kL]
         pR += pr[5, iR, jR, kR]
     return pL, pR
+
+@nb.njit(fastmath=True)
+def get_diss_vars(pr, i, j, k):
+    if pr.shape[0] >= 15:
+        pi = pr[5, i, j, k]
+        pixx = pr[6, i, j, k]
+        piyy = pr[7, i, j, k]
+        pizz = pr[8, i, j, k]
+        pixy = pr[9, i, j, k]
+        pixz = pr[10, i, j, k]
+        piyz = pr[11, i, j, k]
+        qx = pr[12, i, j, k]
+        qy = pr[13, i, j, k]
+        qz = pr[14, i, j, k]
+        return pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz
+    return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+@nb.njit(fastmath=True)
+def add_diss_flux_x(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz):
+    out = F.copy()
+    out[1] += pi + pixx
+    out[2] += pixy
+    out[3] += pixz
+    out[4] += vx*(pi + pixx) + vy*pixy + vz*pixz + qx
+    return out
+
+@nb.njit(fastmath=True)
+def add_diss_flux_y(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz):
+    out = F.copy()
+    out[1] += pixy
+    out[2] += pi + piyy
+    out[3] += piyz
+    out[4] += vx*pixy + vy*(pi + piyy) + vz*piyz + qy
+    return out
+
+@nb.njit(fastmath=True)
+def add_diss_flux_z(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz):
+    out = F.copy()
+    out[1] += pixz
+    out[2] += piyz
+    out[3] += pi + pizz
+    out[4] += vx*pixz + vy*piyz + vz*(pi + pizz) + qz
+    return out
+
+@nb.njit(fastmath=True)
+def apply_diss_flux_x(pr, F, vx, vy, vz, i, j, k):
+    if pr.shape[0] < 15:
+        return F
+    pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz = get_diss_vars(pr, i, j, k)
+    return add_diss_flux_x(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz)
+
+@nb.njit(fastmath=True)
+def apply_diss_flux_y(pr, F, vx, vy, vz, i, j, k):
+    if pr.shape[0] < 15:
+        return F
+    pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz = get_diss_vars(pr, i, j, k)
+    return add_diss_flux_y(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz)
+
+@nb.njit(fastmath=True)
+def apply_diss_flux_z(pr, F, vx, vy, vz, i, j, k):
+    if pr.shape[0] < 15:
+        return F
+    pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz = get_diss_vars(pr, i, j, k)
+    return add_diss_flux_z(F, vx, vy, vz, pi, pixx, piyy, pizz, pixy, pixz, piyz, qx, qy, qz)
 
 # ------------------------
 # RHS with MUSCL reconstruction in x/y/z
@@ -464,6 +528,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_x(rL,vxL,vyL,vzL,pL)
                 FR = flux_x(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i-1, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vxL, csL)
                 lmR, lpR = eig_speeds(vxR, csR)
@@ -511,6 +577,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_x(rL,vxL,vyL,vzL,pL)
                 FR = flux_x(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i+1, j, k)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vxL, csL)
                 lmR, lpR = eig_speeds(vxR, csR)
@@ -578,6 +646,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_y(rL,vxL,vyL,vzL,pL)
                 FR = flux_y(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j-1, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vyL, csL)
                 lmR, lpR = eig_speeds(vyR, csR)
@@ -624,6 +694,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_y(rL,vxL,vyL,vzL,pL)
                 FR = flux_y(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j+1, k)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vyL, csL)
                 lmR, lpR = eig_speeds(vyR, csR)
@@ -691,6 +763,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_z(rL,vxL,vyL,vzL,pL)
                 FR = flux_z(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k-1)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vzL, csL)
                 lmR, lpR = eig_speeds(vzR, csR)
@@ -737,6 +811,8 @@ def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_z(rL,vxL,vyL,vzL,pL)
                 FR = flux_z(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k+1)
                 csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
                 lmL, lpL = eig_speeds(vzL, csL)
                 lmR, lpR = eig_speeds(vzR, csR)
@@ -779,6 +855,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR[0], qR[1], qR[2], qR[3], qR[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_x(rL,vxL,vyL,vzL,pL); FR = flux_x(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i-1, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i, j, k)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i-1, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vxL, csL); lamRm, lamRp = eig_speeds(vxR, csR)
                 sL = min(lamLm, lamRm); sR = max(lamLp, lamRp)
@@ -788,6 +868,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_x(rL,vxL,vyL,vzL,pL); FR = flux_x(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i+1, j, k)
+                FL = apply_diss_flux_x(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_x(pr, FR, vxR, vyR, vzR, i+1, j, k)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vxL, csL); lamRm, lamRp = eig_speeds(vxR, csR)
                 sL2 = min(lamLm, lamRm); sR2 = max(lamLp, lamRp)
@@ -812,6 +896,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR[0], qR[1], qR[2], qR[3], qR[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_y(rL,vxL,vyL,vzL,pL); FR = flux_y(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j-1, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j, k)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j-1, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vyL, csL); lamRm, lamRp = eig_speeds(vyR, csR)
                 tL = min(lamLm, lamRm); tR = max(lamLp, lamRp)
@@ -821,6 +909,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_y(rL,vxL,vyL,vzL,pL); FR = flux_y(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j+1, k)
+                FL = apply_diss_flux_y(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_y(pr, FR, vxR, vyR, vzR, i, j+1, k)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vyL, csL); lamRm, lamRp = eig_speeds(vyR, csR)
                 tL2 = min(lamLm, lamRm); tR2 = max(lamLp, lamRp)
@@ -845,6 +937,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR[0], qR[1], qR[2], qR[3], qR[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_z(rL,vxL,vyL,vzL,pL); FR = flux_z(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k-1)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k-1)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vzL, csL); lamRm, lamRp = eig_speeds(vzR, csR)
                 uL = min(lamLm, lamRm); uR = max(lamLp, lamRp)
@@ -854,6 +950,10 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 rR,vxR,vyR,vzR,pR = floor_prim(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4])
                 UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL)); UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
                 FL = flux_z(rL,vxL,vyL,vzL,pL); FR = flux_z(rR,vxR,vyR,vzR,pR)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k+1)
+                FL = apply_diss_flux_z(pr, FL, vxL, vyL, vzL, i, j, k)
+                FR = apply_diss_flux_z(pr, FR, vxR, vyR, vzR, i, j, k+1)
                 csL = sound_speed(rL,pL); csR = sound_speed(rR,pR)
                 lamLm, lamLp = eig_speeds(vzL, csL); lamRm, lamRp = eig_speeds(vzR, csR)
                 uL2 = min(lamLm, lamRm); uR2 = max(lamLp, lamRp)
@@ -987,7 +1087,7 @@ def max_char_speed(pr, nx, ny, nz):
 # ------------------------
 def step_ssprk2(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
@@ -1005,7 +1105,9 @@ def step_ssprk2(pr, dx, dy, dz, dt):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+                pr1[0:5,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr1[5:] = pr[5:]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1019,12 +1121,14 @@ def step_ssprk2(pr, dx, dy, dz, dt):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+                out[0:5,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+    if pr.shape[0] > 5:
+        out[5:] = pr1[5:]
     return out
 
 def step_ssprk3(pr, dx, dy, dz, dt):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
@@ -1042,7 +1146,9 @@ def step_ssprk3(pr, dx, dy, dz, dt):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+                pr1[0:5,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr1[5:] = pr[5:]
 
     if RECON_ID == 1:
         rhs2 = compute_rhs_ppm(pr1, nx, ny, nz, dx, dy, dz)
@@ -1056,7 +1162,9 @@ def step_ssprk3(pr, dx, dy, dz, dt):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr2[:,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+                pr2[0:5,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr2[5:] = pr1[5:]
 
     if RECON_ID == 1:
         rhs3 = compute_rhs_ppm(pr2, nx, ny, nz, dx, dy, dz)
@@ -1070,5 +1178,7 @@ def step_ssprk3(pr, dx, dy, dz, dt):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = cons_to_prim(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k])
+                out[0:5,i,j,k] = cons_to_prim(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k])
+    if pr.shape[0] > 5:
+        out[5:] = pr2[5:]
     return out

@@ -51,7 +51,7 @@ def compute_rhs_grhd(pr, dx, dy, dz, offs_x, ng):
 
 def step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
@@ -64,7 +64,9 @@ def step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = srhd_core.cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+                pr1[0:5,i,j,k] = srhd_core.cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr1[5:] = pr[5:]
 
     rhs2 = compute_rhs_grhd(pr1, dx, dy, dz, offs_x, ng)
     U2   = 0.5*(U0 + U1 + dt*rhs2)
@@ -73,12 +75,14 @@ def step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = srhd_core.cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+                out[0:5,i,j,k] = srhd_core.cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+    if pr.shape[0] > 5:
+        out[5:] = pr1[5:]
     return out
 
 def step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
+    U0 = np.zeros((5, nx, ny, nz))
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
@@ -91,7 +95,9 @@ def step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr1[:,i,j,k] = srhd_core.cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+                pr1[0:5,i,j,k] = srhd_core.cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr1[5:] = pr[5:]
 
     rhs2 = compute_rhs_grhd(pr1, dx, dy, dz, offs_x, ng)
     U2 = 0.75*U0 + 0.25*(U1 + dt*rhs2)
@@ -100,7 +106,9 @@ def step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                pr2[:,i,j,k] = srhd_core.cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+                pr2[0:5,i,j,k] = srhd_core.cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
+    if pr.shape[0] > 5:
+        pr2[5:] = pr1[5:]
 
     rhs3 = compute_rhs_grhd(pr2, dx, dy, dz, offs_x, ng)
     U3 = (1.0/3.0)*U0 + (2.0/3.0)*(U2 + dt*rhs3)
@@ -109,5 +117,7 @@ def step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                out[:,i,j,k] = srhd_core.cons_to_prim(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k])
+                out[0:5,i,j,k] = srhd_core.cons_to_prim(U3[0,i,j,k], U3[1,i,j,k], U3[2,i,j,k], U3[3,i,j,k], U3[4,i,j,k])
+    if pr.shape[0] > 5:
+        out[5:] = pr2[5:]
     return out

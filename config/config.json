@@ -65,5 +65,11 @@
   "DISSIPATION_ENABLED": false,
   "DISSIPATION_MODEL": "israel_stewart",
   "RELAX_TAU": 0.1,
-  "BULK_ZETA": 0.0
+  "BULK_ZETA": 0.0,
+  "SHEAR_ETA": 0.0,
+  "HEAT_KAPPA": 0.0,
+  "RELAX_TAU_BULK": 0.1,
+  "RELAX_TAU_SHEAR": 0.1,
+  "RELAX_TAU_HEAT": 0.1,
+  "DISSIPATION_CAP_FRAC": 0.5
 }

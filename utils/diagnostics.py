@@ -4,7 +4,7 @@ from mpi4py import MPI
 
 def compute_diagnostics_and_write(pr, dx, dy, dz,
                                   offs_x, counts, comm, rank,
-                                  step, t, dt, amax, run_dir, prim_to_cons, NG):
+                                  step, t, dt, amax, run_dir, prim_to_cons, NG, is_rmhd=False):
     """
     Compute and append global diagnostics (max Γ, inlet flux).
     """
@@ -34,7 +34,7 @@ def compute_diagnostics_and_write(pr, dx, dy, dz,
         for j in range(NG, NG + ny_loc):
             for k in range(NG, NG + nz_loc):
                 rho, vx, vy, vz, p = pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k]
-                if pr.shape[0] >= 9:
+                if is_rmhd:
                     Bx, By, Bz, psi = pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k]
                     _, Sx, _, _, _, _, _, _, _ = prim_to_cons(rho, vx, vy, vz, p, Bx, By, Bz, psi)
                 else:

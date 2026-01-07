@@ -56,6 +56,8 @@ def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng, cfg):
                 pr[2, g, j, k] = vy
                 pr[3, g, j, k] = vz
                 pr[4, g, j, k] = p
+                if pr.shape[0] >= 15:
+                    pr[5:15, g, j, k] = 0.0
                 if cfg.get("PHYSICS") in ("rmhd", "grmhd"):
                     Bx = By = Bz = 0.0
                     if cfg.get("B_INIT") == "poloidal":

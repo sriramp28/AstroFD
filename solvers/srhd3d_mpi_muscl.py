@@ -93,7 +93,7 @@ def exchange_halos(pr, comm, left, right):
     """
     Exchange NG ghost layers along x with neighbors using blocking Sendrecv.
     pr shape: (NV, nx_loc + 2*NG, NY + 2*NG, NZ + 2*NG)
-    Note: NV = 5 for base hydro, and NV = 9 for RMHD
+    Note: NV = 5 for base hydro, NV = 15 for hydro+IS dissipation, NV = 9 for RMHD.
     """
     # phase 1: exchange with left neighbor
     if left is not None:
@@ -117,7 +117,7 @@ def exchange_halos(pr, comm, left, right):
 def init_block(nx_loc, ny_loc, nz_loc):
     nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
-        nv = 6
+        nv = 15
     pr = np.zeros((nv, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
 
     # base hydro fields
@@ -129,7 +129,7 @@ def init_block(nx_loc, ny_loc, nz_loc):
     if PHYSICS in ("rmhd", "grmhd"):
         pr[5:, :, :, :] = 0.0
     if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
-        pr[5, :, :, :] = 0.0
+        pr[5:, :, :, :] = 0.0
     return pr
 
 def latest_run_dir(base="results"):
@@ -290,7 +290,7 @@ def main():
         if rank == 0:      nozzle.apply_nozzle_left_x(
             pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
         )
-        pr = dissipation.apply_causal_dissipation(pr, dt, settings)
+        pr = dissipation.apply_causal_dissipation(pr, dt, dx, dy, dz, settings)
 
         # update time, step count
         t += dt
@@ -316,7 +316,10 @@ def main():
                 if pr.shape[0] > 5:
                     np.savez(
                         fname,
-                        rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4], pi=pr[5],
+                        rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
+                        pi=pr[5], pixx=pr[6], piyy=pr[7], pizz=pr[8],
+                        pixy=pr[9], pixz=pr[10], piyz=pr[11],
+                        qx=pr[12], qy=pr[13], qz=pr[14],
                         meta = np.array([dx, dy, dz, t], dtype=np.float64),
                         comment = "3D SRHD/GRHD block (with ghosts)."
                     )
@@ -342,13 +345,13 @@ def main():
                 global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, dt, amax, RUN_DIR,
-                    srhd_core.prim_to_cons, NG
+                    srhd_core.prim_to_cons, NG, False
                 )
             else:
                 global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, dt, amax, RUN_DIR,
-                    rmhd_core.prim_to_cons_rmhd, NG
+                    rmhd_core.prim_to_cons_rmhd, NG, True
                 )
             if rank == 0:
                 print(f"[diag] step={step} maxGamma={global_maxG:.3f} "

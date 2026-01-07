@@ -50,6 +50,12 @@ def load_settings():
         DISSIPATION_MODEL="israel_stewart",
         RELAX_TAU=0.1,
         BULK_ZETA=0.0,
+        SHEAR_ETA=0.0,
+        HEAT_KAPPA=0.0,
+        RELAX_TAU_BULK=None,
+        RELAX_TAU_SHEAR=None,
+        RELAX_TAU_HEAT=None,
+        DISSIPATION_CAP_FRAC=0.5,
         # results
         RESULTS_UNIQUE=False,
         # debug
@@ -113,8 +119,6 @@ def load_settings():
     if s.get("DISSIPATION_ENABLED", False):
         if s.get("PHYSICS") in ("rmhd", "grmhd"):
             raise ValueError("DISSIPATION_ENABLED is supported only for hydro/grhd.")
-        if s.get("RECON") != "muscl":
-            raise ValueError("DISSIPATION_ENABLED currently requires RECON='muscl'.")
 
     # normalize nozzle perturbations: keep legacy NOZZLE_TURB behavior
     if s.get("NOZZLE_PERTURB") is None:
@@ -129,5 +133,13 @@ def load_settings():
         s["RECON"] = s["RECON"].lower()
     if isinstance(s.get("RIEMANN"), str):
         s["RIEMANN"] = s["RIEMANN"].lower()
+
+    # dissipation relaxation defaults
+    if s.get("RELAX_TAU_BULK") is None:
+        s["RELAX_TAU_BULK"] = s.get("RELAX_TAU", 0.1)
+    if s.get("RELAX_TAU_SHEAR") is None:
+        s["RELAX_TAU_SHEAR"] = s.get("RELAX_TAU", 0.1)
+    if s.get("RELAX_TAU_HEAT") is None:
+        s["RELAX_TAU_HEAT"] = s.get("RELAX_TAU", 0.1)
 
     return s
