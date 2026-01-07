@@ -13,6 +13,8 @@ CASES = [
     "config/config_minmod.json",
     "config/config_vanleer.json",
     "config/config_hlld_full.json",
+    "config/config_chemistry.json",
+    "config/config_chemistry_hot.json",
 ]
 
 
