@@ -123,6 +123,69 @@ def apply_radiation_coupling(pr, dt, cfg):
 
     return pr
 
+
+def apply_kinetic_effects(pr, dt, dx, dy, dz, cfg, ng):
+    """
+    Effective kinetic heating using local shear or current magnitude.
+    """
+    if not cfg.get("KINETIC_EFFECTS_ENABLED", False):
+        return pr
+
+    model = str(cfg.get("KINETIC_MODEL", "shear")).lower()
+    coeff = float(cfg.get("KINETIC_COEFF", 0.0))
+    cap = float(cfg.get("KINETIC_CAP", 0.0))
+    if coeff == 0.0:
+        return pr
+
+    gamma = float(cfg.get("GAMMA", 5.0/3.0))
+    pmax = float(cfg.get("P_MAX", 1.0))
+    nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+
+    if model == "current" and pr.shape[0] >= 8:
+        for i in range(ng, nx - ng):
+            for j in range(ng, ny - ng):
+                for k in range(ng, nz - ng):
+                    dBz_dy = (pr[7, i, j+1, k] - pr[7, i, j-1, k]) / (2.0*dy)
+                    dBy_dz = (pr[6, i, j, k+1] - pr[6, i, j, k-1]) / (2.0*dz)
+                    dBx_dz = (pr[5, i, j, k+1] - pr[5, i, j, k-1]) / (2.0*dz)
+                    dBz_dx = (pr[7, i+1, j, k] - pr[7, i-1, j, k]) / (2.0*dx)
+                    dBy_dx = (pr[6, i+1, j, k] - pr[6, i-1, j, k]) / (2.0*dx)
+                    dBx_dy = (pr[5, i, j+1, k] - pr[5, i, j-1, k]) / (2.0*dy)
+                    jx = dBz_dy - dBy_dz
+                    jy = dBx_dz - dBz_dx
+                    jz = dBy_dx - dBx_dy
+                    j2 = jx*jx + jy*jy + jz*jz
+                    dp = (gamma - 1.0) * coeff * j2 * dt
+                    if cap > 0.0 and dp > cap:
+                        dp = cap
+                    p = pr[4, i, j, k] + dp
+                    if p < 1e-12:
+                        p = 1e-12
+                    if p > pmax:
+                        p = pmax
+                    pr[4, i, j, k] = p
+        return pr
+
+    # shear-based heating
+    for i in range(ng, nx - ng):
+        for j in range(ng, ny - ng):
+            for k in range(ng, nz - ng):
+                dvx_dx = (pr[1, i+1, j, k] - pr[1, i-1, j, k]) / (2.0*dx)
+                dvy_dy = (pr[2, i, j+1, k] - pr[2, i, j-1, k]) / (2.0*dy)
+                dvz_dz = (pr[3, i, j, k+1] - pr[3, i, j, k-1]) / (2.0*dz)
+                shear2 = dvx_dx*dvx_dx + dvy_dy*dvy_dy + dvz_dz*dvz_dz
+                dp = (gamma - 1.0) * coeff * shear2 * dt
+                if cap > 0.0 and dp > cap:
+                    dp = cap
+                p = pr[4, i, j, k] + dp
+                if p < 1e-12:
+                    p = 1e-12
+                if p > pmax:
+                    p = pmax
+                pr[4, i, j, k] = p
+
+    return pr
+
 def apply_two_temperature(pr, dt, cfg):
     if not cfg.get("TWO_TEMPERATURE", False):
         return pr

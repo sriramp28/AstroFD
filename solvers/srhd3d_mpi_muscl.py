@@ -372,6 +372,7 @@ def main():
         pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs[rank], NG)
         pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, NG)
         pr = source_terms.apply_radiation_coupling(pr, dt, settings)
+        pr = source_terms.apply_kinetic_effects(pr, dt, dx, dy, dz, settings, NG)
 
         # update time, step count
         t += dt

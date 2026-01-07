@@ -133,6 +133,11 @@ def load_settings():
         RADIATION_COUPLING_ENABLED=False,
         RADIATION_COEFF=0.0,
         RADIATION_T_RAD=0.0,
+        # kinetic effects (effective heating/pressure)
+        KINETIC_EFFECTS_ENABLED=False,
+        KINETIC_MODEL="shear",
+        KINETIC_COEFF=0.0,
+        KINETIC_CAP=0.0,
         # results
         RESULTS_UNIQUE=False,
         # debug
