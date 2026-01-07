@@ -87,6 +87,42 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
 
     return pr
 
+
+def apply_radiation_coupling(pr, dt, cfg):
+    """
+    Simple radiation-plasma coupling: relax gas temperature toward T_rad.
+    T is approximated as p/rho in code units.
+    """
+    if not cfg.get("RADIATION_COUPLING_ENABLED", False):
+        return pr
+
+    coeff = float(cfg.get("RADIATION_COEFF", 0.0))
+    t_rad = float(cfg.get("RADIATION_T_RAD", 0.0))
+    if coeff == 0.0:
+        return pr
+    gamma = float(cfg.get("GAMMA", 5.0/3.0))
+    pmax = float(cfg.get("P_MAX", 1.0))
+    ng = int(cfg.get("NG", 2))
+
+    nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    for i in range(ng, nx - ng):
+        for j in range(ng, ny - ng):
+            for k in range(ng, nz - ng):
+                rho = pr[0, i, j, k]
+                if rho <= 0.0:
+                    continue
+                t_gas = pr[4, i, j, k] / max(rho, 1e-12)
+                dT = (t_rad - t_gas) * coeff * dt
+                dp = (gamma - 1.0) * rho * dT
+                p = pr[4, i, j, k] + dp
+                if p < 1e-12:
+                    p = 1e-12
+                if p > pmax:
+                    p = pmax
+                pr[4, i, j, k] = p
+
+    return pr
+
 def apply_two_temperature(pr, dt, cfg):
     if not cfg.get("TWO_TEMPERATURE", False):
         return pr

@@ -119,6 +119,20 @@ def load_settings():
         # resistive RMHD
         RESISTIVE_ENABLED=False,
         RESISTIVITY=0.0,
+        # non-ideal MHD microphysics
+        NONIDEAL_MHD_ENABLED=False,
+        HALL_ENABLED=False,
+        HALL_COEFF=0.0,
+        AMBIPOLAR_ENABLED=False,
+        AMBIPOLAR_COEFF=0.0,
+        HYPERRESIST_ENABLED=False,
+        HYPERRESIST_COEFF=0.0,
+        JOULE_HEAT_ENABLED=False,
+        JOULE_HEAT_EFF=0.0,
+        # radiation-plasma coupling (simple relaxation)
+        RADIATION_COUPLING_ENABLED=False,
+        RADIATION_COEFF=0.0,
+        RADIATION_T_RAD=0.0,
         # results
         RESULTS_UNIQUE=False,
         # debug

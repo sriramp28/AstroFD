@@ -27,6 +27,7 @@ from core import grmhd_core
 from core import dissipation
 from core import source_terms
 from core import chemistry
+from core import plasma_microphysics
 from core import gravity
 from core import boundary
 from core import nozzle
@@ -369,6 +370,8 @@ def main():
         pr = chemistry.apply_ion_chemistry(pr, dt, settings)
         pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG)
         pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs[rank], NG)
+        pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, NG)
+        pr = source_terms.apply_radiation_coupling(pr, dt, settings)
 
         # update time, step count
         t += dt
