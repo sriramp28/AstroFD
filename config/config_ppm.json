@@ -32,7 +32,7 @@
   "CFL": 0.35,
   "GAMMA": 1.6666666666666667,
   "NG": 2,
-  "RECON": "muscl",
+  "RECON": "ppm",
   "LIMITER": "mc",
   "RIEMANN": "hlle",
   "RK_ORDER": 2,
@@ -42,7 +42,7 @@
   "RESTART_PATH": null,
 
   // physics mode
-  "PHYSICS": "hydro",   // "hydro" | "rmhd" | "grhd" | "grmhd"
+  "PHYSICS": "hydro",   // "hydro" | "rmhd"
 
   // GLM cleaning for ∇·B
   "GLM_CH": 1.0,        // hyperbolic wave speed (≈ max signal speed)

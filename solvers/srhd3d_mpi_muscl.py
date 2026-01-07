@@ -7,16 +7,32 @@
 #   python3 -m pip install numpy numba mpi4py
 #   mpirun -np 2 python3 srhd3d_mpi_muscl.py
 
-import os, math, time
+import os
+import sys
+import glob
 import numpy as np
 from mpi4py import MPI
-import numba as nb
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from utils.settings import load_settings
 from utils.io_utils import make_run_dir
 from utils import diagnostics
+from core import srhd_core
+from core import rmhd_core
+from core import grhd_core
+from core import grmhd_core
+from core import dissipation
+from core import boundary
+from core import nozzle
 
 settings = load_settings()
+srhd_core.configure(settings)
+rmhd_core.configure(settings)
+grhd_core.configure(settings)
+grmhd_core.configure(settings)
 
 # assign globals from settings (Numba reads them before first JIT use)
 NX, NY, NZ = settings["NX"], settings["NY"], settings["NZ"]
@@ -46,548 +62,19 @@ DEBUG         = settings["DEBUG"]
 ASSERTS       = settings["ASSERTS"]
 CHECK_NAN_EVERY = settings["CHECK_NAN_EVERY"]
 
+PHYSICS      = settings.get("PHYSICS", "hydro")   # "hydro" | "rmhd"
+GLM_CH       = settings.get("GLM_CH", 1.0)
+GLM_CP       = settings.get("GLM_CP", 0.1)
+B_INIT       = settings.get("B_INIT", "none")     # "none" | "poloidal" | "toroidal"
+B0           = settings.get("B0", 0.0)
+RK_ORDER     = int(settings.get("RK_ORDER", 2))
+CHECKPOINT_EVERY = int(settings.get("CHECKPOINT_EVERY", 0))
+RESTART_PATH = settings.get("RESTART_PATH")
+DISSIPATION_ENABLED = settings.get("DISSIPATION_ENABLED", False)
+BULK_ZETA = settings.get("BULK_ZETA", 0.0)
+
 SMALL = 1e-12
-
-# ------------------------
-# SRHD helpers (Numba)
-# ------------------------
-@nb.njit(fastmath=True)
-def prim_to_cons(rho, vx, vy, vz, p, gamma=GAMMA):
-    v2 = vx*vx + vy*vy + vz*vz
-    if v2 >= 1.0: v2 = 1.0 - 1e-14
-    W  = 1.0/np.sqrt(1.0 - v2)
-    h  = 1.0 + gamma/(gamma-1.0)*p/np.maximum(rho, SMALL)
-    w  = rho*h
-    D  = rho*W
-    Sx = w*W*W*vx
-    Sy = w*W*W*vy
-    Sz = w*W*W*vz
-    tau= w*W*W - p - D
-    return D, Sx, Sy, Sz, tau
-
-@nb.njit(fastmath=True)
-def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
-    E  = tau + D
-    S2 = Sx*Sx + Sy*Sy + Sz*Sz
-
-    # initial guess: ideal-gas-like
-    p = (gamma - 1.0) * (E - D)
-    if p < SMALL: p = SMALL
-    if p > P_MAX: p = P_MAX
-
-    ok = False
-    for _ in range(60):
-        Wm = E + p                      # Wm = E + p  (our unknown enters here)
-        v2 = S2 / (Wm*Wm + SMALL)
-        if v2 >= V_MAX*V_MAX:
-            v2 = V_MAX*V_MAX - 1e-14
-        W  = 1.0 / np.sqrt(1.0 - v2)
-        rho= D / max(W, SMALL)
-        h  = 1.0 + gamma/(gamma-1.0) * p / max(rho, SMALL)
-        w  = rho * h
-        # residual: Wm - w W^2 = 0
-        f  = Wm - w * W * W
-
-        # simple, safe slope; we damp anyway
-        dfdp = 1.0
-        dp = -f / dfdp
-
-        # damp update and clamp into [P_MIN, P_MAX]
-        if dp >  0.5*p: dp =  0.5*p
-        if dp < -0.5*p: dp = -0.5*p
-        p_new = p + dp
-        if p_new < SMALL: p_new = SMALL
-        if p_new > P_MAX: p_new = P_MAX
-
-        if np.abs(dp) < 1e-12 * max(1.0, p_new):
-            p = p_new
-            ok = True
-            break
-        p = p_new
-
-    if not ok:
-        # fallback: energy-based clamp (very robust)
-        p = (gamma - 1.0) * (E - D)
-        if p < SMALL: p = SMALL
-        if p > P_MAX: p = P_MAX
-
-    # recover velocities with cap
-    Wm = E + p
-    vx = Sx / max(Wm, SMALL)
-    vy = Sy / max(Wm, SMALL)
-    vz = Sz / max(Wm, SMALL)
-
-    # cap velocity to V_MAX
-    v2 = vx*vx + vy*vy + vz*vz
-    vmax2 = V_MAX*V_MAX
-    if v2 >= vmax2:
-        fac = V_MAX / np.sqrt(v2 + 1e-32)
-        vx *= fac; vy *= fac; vz *= fac
-
-    # recompute rho with final Γ
-    v2 = vx*vx + vy*vy + vz*vz
-    if v2 >= 1.0: v2 = 1.0 - 1e-14
-    W  = 1.0 / np.sqrt(1.0 - v2)
-    rho= D / max(W, SMALL)
-    if rho < SMALL: rho = SMALL
-
-    # final pressure cap (in case)
-    if p < SMALL: p = SMALL
-    if p > P_MAX: p = P_MAX
-
-    return rho, vx, vy, vz, p
-
-@nb.njit(fastmath=True)
-def sound_speed(rho, p, gamma=GAMMA):
-    h  = 1.0 + gamma/(gamma-1.0)*p/np.maximum(rho, SMALL)
-    w  = rho*h
-    cs2= gamma*p/np.maximum(w, SMALL)
-    if cs2 < 0.0: cs2 = 0.0
-    if cs2 > 1.0 - 1e-14: cs2 = 1.0 - 1e-14
-    return np.sqrt(cs2)
-
-@nb.njit(fastmath=True)
-def eig_speeds(vn, cs):
-    dp = 1.0 + vn*cs
-    dm = 1.0 - vn*cs
-    if dp == 0.0: dp = SMALL
-    if dm == 0.0: dm = SMALL
-    lp = (vn + cs)/dp
-    lm = (vn - cs)/dm
-    if lp >  1.0: lp =  1.0
-    if lp < -1.0: lp = -1.0
-    if lm >  1.0: lm =  1.0
-    if lm < -1.0: lm = -1.0
-    return lm, lp
-
-@nb.njit(fastmath=True)
-def flux_x(rho, vx, vy, vz, p):
-    D,Sx,Sy,Sz,tau = prim_to_cons(rho,vx,vy,vz,p)
-    return np.array([D*vx, Sx*vx + p, Sy*vx, Sz*vx, (tau+p)*vx])
-
-@nb.njit(fastmath=True)
-def flux_y(rho, vx, vy, vz, p):
-    D,Sx,Sy,Sz,tau = prim_to_cons(rho,vx,vy,vz,p)
-    return np.array([D*vy, Sx*vy, Sy*vy + p, Sz*vy, (tau+p)*vy])
-
-@nb.njit(fastmath=True)
-def flux_z(rho, vx, vy, vz, p):
-    D,Sx,Sy,Sz,tau = prim_to_cons(rho,vx,vy,vz,p)
-    return np.array([D*vz, Sx*vz, Sy*vz, Sz*vz + p, (tau+p)*vz])
-
-@nb.njit(fastmath=True)
-def hlle(UL, UR, FL, FR, sL, sR):
-    if sL >= 0.0:
-        return FL
-    elif sR <= 0.0:
-        return FR
-    else:
-        return (sR*FL - sL*FR + sL*sR*(UR-UL)) / (sR - sL + SMALL)
-
-# ------------------------
-# MUSCL (MC limiter) helpers
-# ------------------------
-@nb.njit(fastmath=True)
-def minmod(a, b):
-    if a*b <= 0.0:
-        return 0.0
-    else:
-        if abs(a) < abs(b): return a
-        else:               return b
-
-@nb.njit(fastmath=True)
-def mc_lim(dqL, dqR):
-    mm = minmod(dqL, dqR)
-    return minmod(0.5*(dqL + dqR), 2.0*mm)
-
-@nb.njit(fastmath=True)
-def floor_prim(rho, vx, vy, vz, p):
-    if rho < SMALL: rho = SMALL
-    if p   < SMALL: p   = SMALL
-    # caps
-    if p   > P_MAX: p   = P_MAX
-    # limit |v| < V_MAX
-    v2 = vx*vx + vy*vy + vz*vz
-    vmax2 = V_MAX*V_MAX
-    if v2 >= vmax2:
-        fac = V_MAX / np.sqrt(v2 + 1e-32)
-        vx *= fac; vy *= fac; vz *= fac
-    return rho, vx, vy, vz, p
-
-# ------------------------
-# RHS with MUSCL reconstruction in x/y/z
-# Full implementation inlined for standalone file
-# ------------------------
-@nb.njit(parallel=True, fastmath=True)
-def compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz):
-    """
-    Compute RHS with MUSCL (MC limiter) reconstruction.
-    IMPORTANT: loops start at 2 and stop at N-2 so all i±2, j±2, k±2 are in-bounds.
-    Requires NG >= 2 ghost layers.
-    """
-    rhs = np.zeros((5, nx, ny, nz))
-
-    i0, i1 = 2, nx-2
-    j0, j1 = 2, ny-2
-    k0, k1 = 2, nz-2
-
-    # X faces
-    for i in range(i0, i1):
-        for j in range(j0, j1):
-            for k in range(k0, k1):
-                # slopes around i-1 and i
-                dqL_r = pr[0,i-1,j,k] - pr[0,i-2,j,k]
-                dqR_r = pr[0,i  ,j,k] - pr[0,i-1,j,k]
-                slL_r = mc_lim(dqL_r, dqR_r)
-                dqL_r = pr[0,i  ,j,k] - pr[0,i-1,j,k]
-                dqR_r = pr[0,i+1,j,k] - pr[0,i  ,j,k]
-                slR_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i-1,j,k] - pr[1,i-2,j,k]
-                dqR_vx = pr[1,i  ,j,k] - pr[1,i-1,j,k]
-                slL_vx = mc_lim(dqL_vx, dqR_vx)
-                dqL_vx = pr[1,i  ,j,k] - pr[1,i-1,j,k]
-                dqR_vx = pr[1,i+1,j,k] - pr[1,i  ,j,k]
-                slR_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i-1,j,k] - pr[2,i-2,j,k]
-                dqR_vy = pr[2,i  ,j,k] - pr[2,i-1,j,k]
-                slL_vy = mc_lim(dqL_vy, dqR_vy)
-                dqL_vy = pr[2,i  ,j,k] - pr[2,i-1,j,k]
-                dqR_vy = pr[2,i+1,j,k] - pr[2,i  ,j,k]
-                slR_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i-1,j,k] - pr[3,i-2,j,k]
-                dqR_vz = pr[3,i  ,j,k] - pr[3,i-1,j,k]
-                slL_vz = mc_lim(dqL_vz, dqR_vz)
-                dqL_vz = pr[3,i  ,j,k] - pr[3,i-1,j,k]
-                dqR_vz = pr[3,i+1,j,k] - pr[3,i  ,j,k]
-                slR_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i-1,j,k] - pr[4,i-2,j,k]
-                dqR_p = pr[4,i  ,j,k] - pr[4,i-1,j,k]
-                slL_p = mc_lim(dqL_p, dqR_p)
-                dqL_p = pr[4,i  ,j,k] - pr[4,i-1,j,k]
-                dqR_p = pr[4,i+1,j,k] - pr[4,i  ,j,k]
-                slR_p = mc_lim(dqL_p, dqR_p)
-
-                # left face (i-1/2)
-                rL = pr[0,i-1,j,k] + 0.5*slL_r
-                vxL= pr[1,i-1,j,k] + 0.5*slL_vx
-                vyL= pr[2,i-1,j,k] + 0.5*slL_vy
-                vzL= pr[3,i-1,j,k] + 0.5*slL_vz
-                pL = pr[4,i-1,j,k] + 0.5*slL_p
-
-                # right state for same face from cell i
-                rR = pr[0,i  ,j,k] - 0.5*slR_r
-                vxR= pr[1,i  ,j,k] - 0.5*slR_vx
-                vyR= pr[2,i  ,j,k] - 0.5*slR_vy
-                vzR= pr[3,i  ,j,k] - 0.5*slR_vz
-                pR = pr[4,i  ,j,k] - 0.5*slR_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_x(rL,vxL,vyL,vzL,pL)
-                FR = flux_x(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vxL, csL)
-                lmR, lpR = eig_speeds(vxR, csR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FxL = hlle(UL, UR, FL, FR, sL, sR)
-
-                # right face (i+1/2): need slopes centered at i+1
-                dqL_r = pr[0,i+1,j,k] - pr[0,i  ,j,k]
-                dqR_r = pr[0,i+2,j,k] - pr[0,i+1,j,k]
-                slRp1_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i+1,j,k] - pr[1,i  ,j,k]
-                dqR_vx = pr[1,i+2,j,k] - pr[1,i+1,j,k]
-                slRp1_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i+1,j,k] - pr[2,i  ,j,k]
-                dqR_vy = pr[2,i+2,j,k] - pr[2,i+1,j,k]
-                slRp1_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i+1,j,k] - pr[3,i  ,j,k]
-                dqR_vz = pr[3,i+2,j,k] - pr[3,i+1,j,k]
-                slRp1_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i+1,j,k] - pr[4,i  ,j,k]
-                dqR_p = pr[4,i+2,j,k] - pr[4,i+1,j,k]
-                slRp1_p = mc_lim(dqL_p, dqR_p)
-
-                rL = pr[0,i  ,j,k] + 0.5*slR_r
-                vxL= pr[1,i  ,j,k] + 0.5*slR_vx
-                vyL= pr[2,i  ,j,k] + 0.5*slR_vy
-                vzL= pr[3,i  ,j,k] + 0.5*slR_vz
-                pL = pr[4,i  ,j,k] + 0.5*slR_p
-
-                rR = pr[0,i+1,j,k] - 0.5*slRp1_r
-                vxR= pr[1,i+1,j,k] - 0.5*slRp1_vx
-                vyR= pr[2,i+1,j,k] - 0.5*slRp1_vy
-                vzR= pr[3,i+1,j,k] - 0.5*slRp1_vz
-                pR = pr[4,i+1,j,k] - 0.5*slRp1_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_x(rL,vxL,vyL,vzL,pL)
-                FR = flux_x(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vxL, csL)
-                lmR, lpR = eig_speeds(vxR, csR)
-                sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
-                FxR = hlle(UL, UR, FL, FR, sL2, sR2)
-
-                rhs[:,i,j,k] -= (FxR - FxL)/dx
-
-    # Y faces
-    for i in range(i0, i1):
-        for j in range(j0, j1):
-            for k in range(k0, k1):
-                dqL_r = pr[0,i,j-1,k] - pr[0,i,j-2,k]
-                dqR_r = pr[0,i,j  ,k] - pr[0,i,j-1,k]
-                slL_r = mc_lim(dqL_r, dqR_r)
-                dqL_r = pr[0,i,j  ,k] - pr[0,i,j-1,k]
-                dqR_r = pr[0,i,j+1,k] - pr[0,i,j  ,k]
-                slR_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i,j-1,k] - pr[1,i,j-2,k]
-                dqR_vx = pr[1,i,j  ,k] - pr[1,i,j-1,k]
-                slL_vx = mc_lim(dqL_vx, dqR_vx)
-                dqL_vx = pr[1,i,j  ,k] - pr[1,i,j-1,k]
-                dqR_vx = pr[1,i,j+1,k] - pr[1,i,j  ,k]
-                slR_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i,j-1,k] - pr[2,i,j-2,k]
-                dqR_vy = pr[2,i,j  ,k] - pr[2,i,j-1,k]
-                slL_vy = mc_lim(dqL_vy, dqR_vy)
-                dqL_vy = pr[2,i,j  ,k] - pr[2,i,j-1,k]
-                dqR_vy = pr[2,i,j+1,k] - pr[2,i,j  ,k]
-                slR_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i,j-1,k] - pr[3,i,j-2,k]
-                dqR_vz = pr[3,i,j  ,k] - pr[3,i,j-1,k]
-                slL_vz = mc_lim(dqL_vz, dqR_vz)
-                dqL_vz = pr[3,i,j  ,k] - pr[3,i,j-1,k]
-                dqR_vz = pr[3,i,j+1,k] - pr[3,i,j  ,k]
-                slR_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i,j-1,k] - pr[4,i,j-2,k]
-                dqR_p = pr[4,i,j  ,k] - pr[4,i,j-1,k]
-                slL_p = mc_lim(dqL_p, dqR_p)
-                dqL_p = pr[4,i,j  ,k] - pr[4,i,j-1,k]
-                dqR_p = pr[4,i,j+1,k] - pr[4,i,j  ,k]
-                slR_p = mc_lim(dqL_p, dqR_p)
-
-                rL = pr[0,i,j-1,k] + 0.5*slL_r
-                vxL= pr[1,i,j-1,k] + 0.5*slL_vx
-                vyL= pr[2,i,j-1,k] + 0.5*slL_vy
-                vzL= pr[3,i,j-1,k] + 0.5*slL_vz
-                pL = pr[4,i,j-1,k] + 0.5*slL_p
-
-                rR = pr[0,i,j  ,k] - 0.5*slR_r
-                vxR= pr[1,i,j  ,k] - 0.5*slR_vx
-                vyR= pr[2,i,j  ,k] - 0.5*slR_vy
-                vzR= pr[3,i,j  ,k] - 0.5*slR_vz
-                pR = pr[4,i,j  ,k] - 0.5*slR_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_y(rL,vxL,vyL,vzL,pL)
-                FR = flux_y(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vyL, csL)
-                lmR, lpR = eig_speeds(vyR, csR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FyD = hlle(UL, UR, FL, FR, sL, sR)
-
-                dqL_r = pr[0,i,j+1,k] - pr[0,i,j  ,k]
-                dqR_r = pr[0,i,j+2,k] - pr[0,i,j+1,k]
-                slUp_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i,j+1,k] - pr[1,i,j  ,k]
-                dqR_vx = pr[1,i,j+2,k] - pr[1,i,j+1,k]
-                slUp_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i,j+1,k] - pr[2,i,j  ,k]
-                dqR_vy = pr[2,i,j+2,k] - pr[2,i,j+1,k]
-                slUp_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i,j+1,k] - pr[3,i,j  ,k]
-                dqR_vz = pr[3,i,j+2,k] - pr[3,i,j+1,k]
-                slUp_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i,j+1,k] - pr[4,i,j  ,k]
-                dqR_p = pr[4,i,j+2,k] - pr[4,i,j+1,k]
-                slUp_p = mc_lim(dqL_p, dqR_p)
-
-                rL = pr[0,i,j  ,k] + 0.5*slR_r
-                vxL= pr[1,i,j  ,k] + 0.5*slR_vx
-                vyL= pr[2,i,j  ,k] + 0.5*slR_vy
-                vzL= pr[3,i,j  ,k] + 0.5*slR_vz
-                pL = pr[4,i,j  ,k] + 0.5*slR_p
-
-                rR = pr[0,i,j+1,k] - 0.5*slUp_r
-                vxR= pr[1,i,j+1,k] - 0.5*slUp_vx
-                vyR= pr[2,i,j+1,k] - 0.5*slUp_vy
-                vzR= pr[3,i,j+1,k] - 0.5*slUp_vz
-                pR = pr[4,i,j+1,k] - 0.5*slUp_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_y(rL,vxL,vyL,vzL,pL)
-                FR = flux_y(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vyL, csL)
-                lmR, lpR = eig_speeds(vyR, csR)
-                sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
-                FyU = hlle(UL, UR, FL, FR, sL2, sR2)
-
-                rhs[:,i,j,k] -= (FyU - FyD)/dy
-
-    # Z faces
-    for i in range(i0, i1):
-        for j in range(j0, j1):
-            for k in range(k0, k1):
-                dqL_r = pr[0,i,j,k-1] - pr[0,i,j,k-2]
-                dqR_r = pr[0,i,j,k  ] - pr[0,i,j,k-1]
-                slL_r = mc_lim(dqL_r, dqR_r)
-                dqL_r = pr[0,i,j,k  ] - pr[0,i,j,k-1]
-                dqR_r = pr[0,i,j,k+1] - pr[0,i,j,k  ]
-                slR_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i,j,k-1] - pr[1,i,j,k-2]
-                dqR_vx = pr[1,i,j,k  ] - pr[1,i,j,k-1]
-                slL_vx = mc_lim(dqL_vx, dqR_vx)
-                dqL_vx = pr[1,i,j,k  ] - pr[1,i,j,k-1]
-                dqR_vx = pr[1,i,j,k+1] - pr[1,i,j,k  ]
-                slR_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i,j,k-1] - pr[2,i,j,k-2]
-                dqR_vy = pr[2,i,j,k  ] - pr[2,i,j,k-1]
-                slL_vy = mc_lim(dqL_vy, dqR_vy)
-                dqL_vy = pr[2,i,j,k  ] - pr[2,i,j,k-1]
-                dqR_vy = pr[2,i,j,k+1] - pr[2,i,j,k  ]
-                slR_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i,j,k-1] - pr[3,i,j,k-2]
-                dqR_vz = pr[3,i,j,k  ] - pr[3,i,j,k-1]
-                slL_vz = mc_lim(dqL_vz, dqR_vz)
-                dqL_vz = pr[3,i,j,k  ] - pr[3,i,j,k-1]
-                dqR_vz = pr[3,i,j,k+1] - pr[3,i,j,k  ]
-                slR_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i,j,k-1] - pr[4,i,j,k-2]
-                dqR_p = pr[4,i,j,k  ] - pr[4,i,j,k-1]
-                slL_p = mc_lim(dqL_p, dqR_p)
-                dqL_p = pr[4,i,j,k  ] - pr[4,i,j,k-1]
-                dqR_p = pr[4,i,j,k+1] - pr[4,i,j,k  ]
-                slR_p = mc_lim(dqL_p, dqR_p)
-
-                rL = pr[0,i,j,k-1] + 0.5*slL_r
-                vxL= pr[1,i,j,k-1] + 0.5*slL_vx
-                vyL= pr[2,i,j,k-1] + 0.5*slL_vy
-                vzL= pr[3,i,j,k-1] + 0.5*slL_vz
-                pL = pr[4,i,j,k-1] + 0.5*slL_p
-
-                rR = pr[0,i,j,k  ] - 0.5*slR_r
-                vxR= pr[1,i,j,k  ] - 0.5*slR_vx
-                vyR= pr[2,i,j,k  ] - 0.5*slR_vy
-                vzR= pr[3,i,j,k  ] - 0.5*slR_vz
-                pR = pr[4,i,j,k  ] - 0.5*slR_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_z(rL,vxL,vyL,vzL,pL)
-                FR = flux_z(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vzL, csL)
-                lmR, lpR = eig_speeds(vzR, csR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FzB = hlle(UL, UR, FL, FR, sL, sR)
-
-                dqL_r = pr[0,i,j,k+1] - pr[0,i,j,k  ]
-                dqR_r = pr[0,i,j,k+2] - pr[0,i,j,k+1]
-                slFp_r = mc_lim(dqL_r, dqR_r)
-
-                dqL_vx = pr[1,i,j,k+1] - pr[1,i,j,k  ]
-                dqR_vx = pr[1,i,j,k+2] - pr[1,i,j,k+1]
-                slFp_vx = mc_lim(dqL_vx, dqR_vx)
-
-                dqL_vy = pr[2,i,j,k+1] - pr[2,i,j,k  ]
-                dqR_vy = pr[2,i,j,k+2] - pr[2,i,j,k+1]
-                slFp_vy = mc_lim(dqL_vy, dqR_vy)
-
-                dqL_vz = pr[3,i,j,k+1] - pr[3,i,j,k  ]
-                dqR_vz = pr[3,i,j,k+2] - pr[3,i,j,k+1]
-                slFp_vz = mc_lim(dqL_vz, dqR_vz)
-
-                dqL_p = pr[4,i,j,k+1] - pr[4,i,j,k  ]
-                dqR_p = pr[4,i,j,k+2] - pr[4,i,j,k+1]
-                slFp_p = mc_lim(dqL_p, dqR_p)
-
-                rL = pr[0,i,j,k  ] + 0.5*slR_r
-                vxL= pr[1,i,j,k  ] + 0.5*slR_vx
-                vyL= pr[2,i,j,k  ] + 0.5*slR_vy
-                vzL= pr[3,i,j,k  ] + 0.5*slR_vz
-                pL = pr[4,i,j,k  ] + 0.5*slR_p
-
-                rR = pr[0,i,j,k+1] - 0.5*slFp_r
-                vxR= pr[1,i,j,k+1] - 0.5*slFp_vx
-                vyR= pr[2,i,j,k+1] - 0.5*slFp_vy
-                vzR= pr[3,i,j,k+1] - 0.5*slFp_vz
-                pR = pr[4,i,j,k+1] - 0.5*slFp_p
-
-                rL,vxL,vyL,vzL,pL = floor_prim(rL,vxL,vyL,vzL,pL)
-                rR,vxR,vyR,vzR,pR = floor_prim(rR,vxR,vyR,vzR,pR)
-
-                UL = np.array(prim_to_cons(rL,vxL,vyL,vzL,pL))
-                UR = np.array(prim_to_cons(rR,vxR,vyR,vzR,pR))
-                FL = flux_z(rL,vxL,vyL,vzL,pL)
-                FR = flux_z(rR,vxR,vyR,vzR,pR)
-                csL= sound_speed(rL,pL); csR= sound_speed(rR,pR)
-                lmL, lpL = eig_speeds(vzL, csL)
-                lmR, lpR = eig_speeds(vzR, csR)
-                sL2 = min(lmL, lmR); sR2 = max(lpL, lpR)
-                FzF = hlle(UL, UR, FL, FR, sL2, sR2)
-
-                rhs[:,i,j,k] -= (FzF - FzB)/dz
-
-    return rhs
-# ------------------------
-# max char speed
-# ------------------------
-@nb.njit(fastmath=True)
-def max_char_speed(pr, nx, ny, nz):
-    amax = 0.0
-    for i in range(1, nx-1):
-        for j in range(1, ny-1):
-            for k in range(1, nz-1):
-                rho, vx, vy, vz, p = pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k]
-                cs = sound_speed(rho, p)
-                axm, axp = eig_speeds(vx, cs)
-                aym, ayp = eig_speeds(vy, cs)
-                azm, azp = eig_speeds(vz, cs)
-                loc = max(abs(axm),abs(axp),abs(aym),abs(ayp),abs(azm),abs(azp))
-                if loc > amax: amax = loc
-    if amax < SMALL: amax = SMALL
-    return amax
-
+ 
 # ------------------------
 # MPI utilities: x-slab decomposition
 # ------------------------
@@ -605,7 +92,8 @@ def decompose_x(nx_glob, comm):
 def exchange_halos(pr, comm, left, right):
     """
     Exchange NG ghost layers along x with neighbors using blocking Sendrecv.
-    pr shape: (5, nx_loc + 2*NG, NY + 2*NG, NZ + 2*NG)
+    pr shape: (NV, nx_loc + 2*NG, NY + 2*NG, NZ + 2*NG)
+    Note: NV = 5 for base hydro, and NV = 9 for RMHD
     """
     # phase 1: exchange with left neighbor
     if left is not None:
@@ -624,141 +112,62 @@ def exchange_halos(pr, comm, left, right):
         pr[:, -NG:, :, :] = recvR                               # copy into right ghosts
 
 # ------------------------
-# BCs & nozzle (same as earlier)
-# ------------------------
-def apply_periodic_yz(pr):
-    pr[:, :, 0:NG, :] = pr[:, :, -2*NG:-NG, :]
-    pr[:, :, -NG:, :] = pr[:, :, NG:2*NG, :]
-    pr[:, :, :, 0:NG] = pr[:, :, :, -2*NG:-NG]
-    pr[:, :, :, -NG:] = pr[:, :, :, NG:2*NG]
-
-def apply_outflow_right_x(pr):
-    pr[:, -NG:, :, :] = pr[:, -NG-1:-NG, :, :]
-
-def apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc, y0, z0, rng):
-    for g in range(NG):
-        for j in range(NG, NG+ny_loc):
-            y = (j-NG + 0.5)*dy
-            for k in range(NG, NG+nz_loc):
-                z = (k-NG + 0.5)*dz
-                rr = math.sqrt((y - y0)**2 + (z - z0)**2)
-                s = 0.5*(1.0 - math.tanh((rr - JET_RADIUS)/SHEAR_THICK)) if SHEAR_THICK>0.0 else (1.0 if rr<=JET_RADIUS else 0.0)
-                rho = ETA_RHO*RHO_AMB * s + RHO_AMB*(1.0 - s)
-                p   = P_EQ
-                beta= math.sqrt(1.0 - 1.0/(GAMMA_JET*GAMMA_JET))
-                vx  = beta * s + VX_AMB*(1.0 - s)
-                vy  = VY_AMB
-                vz  = VZ_AMB
-                if NOZZLE_TURB and s>0.0:
-                    vy += TURB_VAMP * (2.0*rng.random()-1.0)
-                    vz += TURB_VAMP * (2.0*rng.random()-1.0)
-                    p  *= (1.0 + TURB_PAMP * (2.0*rng.random()-1.0))
-                pr[0, g, j, k] = rho
-                pr[1, g, j, k] = vx
-                pr[2, g, j, k] = vy
-                pr[3, g, j, k] = vz
-                pr[4, g, j, k] = p
-
-# ------------------------
 # Initialization
 # ------------------------
 def init_block(nx_loc, ny_loc, nz_loc):
-    pr = np.zeros((5, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
+    nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
+    if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
+        nv = 6
+    pr = np.zeros((nv, nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG), dtype=np.float64)
+
+    # base hydro fields
     pr[0, :, :, :] = RHO_AMB
     pr[1, :, :, :] = VX_AMB
     pr[2, :, :, :] = VY_AMB
     pr[3, :, :, :] = VZ_AMB
     pr[4, :, :, :] = P_AMB
+    if PHYSICS in ("rmhd", "grmhd"):
+        pr[5:, :, :, :] = 0.0
+    if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
+        pr[5, :, :, :] = 0.0
     return pr
 
-# ------------------------
-# Time stepping (SSPRK2)
-# ------------------------
-def step_ssprk2(pr, dx, dy, dz, dt):
-    nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
-    U0 = np.zeros_like(pr)
-    for i in range(nx):
-        for j in range(ny):
-            for k in range(nz):
-                U0[:,i,j,k] = prim_to_cons(pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k])
+def latest_run_dir(base="results"):
+    runs = sorted([d for d in glob.glob(os.path.join(base, "*")) if os.path.isdir(d)])
+    if not runs:
+        return None
+    return runs[-1]
 
-    rhs1 = compute_rhs_muscl(pr, nx, ny, nz, dx, dy, dz)
-    U1   = U0 + dt*rhs1
+def latest_checkpoint_in_dir(run_dir, rank):
+    pat = os.path.join(run_dir, f"checkpoint_rank{rank:04d}_step*.npz")
+    files = sorted(glob.glob(pat))
+    return files[-1] if files else None
 
-    pr1 = np.zeros_like(pr)
-    for i in range(nx):
-        for j in range(ny):
-            for k in range(nz):
-                pr1[:,i,j,k] = cons_to_prim(U1[0,i,j,k], U1[1,i,j,k], U1[2,i,j,k], U1[3,i,j,k], U1[4,i,j,k])
+def resolve_restart_path(restart_path, rank):
+    if restart_path is None:
+        return None
+    if isinstance(restart_path, str) and restart_path.lower() in ("none", ""):
+        return None
+    if isinstance(restart_path, str) and restart_path.lower() == "latest":
+        run_dir = latest_run_dir()
+        if run_dir is None:
+            return None
+        return latest_checkpoint_in_dir(run_dir, rank)
+    if os.path.isdir(restart_path):
+        return latest_checkpoint_in_dir(restart_path, rank)
+    if os.path.isfile(restart_path):
+        return restart_path
+    return None
 
-    rhs2 = compute_rhs_muscl(pr1, nx, ny, nz, dx, dy, dz)
-    U2   = 0.5*(U0 + U1 + dt*rhs2)
-
-    out  = np.zeros_like(pr)
-    for i in range(nx):
-        for j in range(ny):
-            for k in range(nz):
-                out[:,i,j,k] = cons_to_prim(U2[0,i,j,k], U2[1,i,j,k], U2[2,i,j,k], U2[3,i,j,k], U2[4,i,j,k])
-    return out
-
-# ------------------------
-# Diagnostics: max Lorentz factor (global) and inlet energy flux (rank 0)
-# ------------------------
-def compute_diagnostics_and_write(pr, dx, dy, dz, offs_x, counts, comm, rank, step, t, dt, amax, run_dir):
-    """
-    pr has ghosts. We'll:
-      - compute local max Lorentz factor across interior cells,
-      - reduce global max to rank 0,
-      - on rank 0 compute inlet energy flux (Sx integrated over j,k at first interior i),
-      - append to diagnostics.csv on rank 0.
-    """
-    nx_loc = pr.shape[1] - 2*NG
-    ny_loc = pr.shape[2] - 2*NG
-    nz_loc = pr.shape[3] - 2*NG
-
-    # local max gamma
-    local_maxG = 0.0
-    for i in range(NG, NG + nx_loc):
-        for j in range(NG, NG + ny_loc):
-            for k in range(NG, NG + nz_loc):
-                vx = pr[1,i,j,k]; vy = pr[2,i,j,k]; vz = pr[3,i,j,k]
-                v2 = vx*vx + vy*vy + vz*vz
-                if v2 >= 1.0: v2 = 1.0 - 1e-14
-                W = 1.0 / math.sqrt(1.0 - v2)
-                if W > local_maxG: local_maxG = W
-
-    global_maxG = comm.allreduce(local_maxG, op=MPI.MAX)
-
-    inlet_flux = 0.0
-    # inlet plane lives on rank 0 only: first interior i = NG
-    if rank == 0:
-        i = NG
-        for j in range(NG, NG + ny_loc):
-            for k in range(NG, NG + nz_loc):
-                rho = pr[0,i,j,k]; vx = pr[1,i,j,k]; vy = pr[2,i,j,k]; vz = pr[3,i,j,k]; p = pr[4,i,j,k]
-                _, Sx, _, _, _ = prim_to_cons(rho, vx, vy, vz, p)
-                inlet_flux += Sx * dy * dz
-
-    # gather inlet_flux global (rank 0 only needs it)
-    total_inlet_flux = comm.allreduce(inlet_flux, op=MPI.SUM)
-    # signed flux (convention: outward normal = +x)
-    signed_flux = total_inlet_flux
-    # inflow-as-positive
-    abs_flux    = abs(total_inlet_flux)
-
-    # write diagnostics on rank 0
-    if rank == 0:
-        fn = os.path.join(run_dir, "diagnostics.csv")
-        header = False
-        if not os.path.exists(fn):
-            header = True
-        with open(fn, "a") as f:
-            if header:
-                f.write("step,time,dt,amax,maxGamma,inletFlux_signed,inletFlux_abs\n")
-            f.write(f"{step},{t:.8e},{dt:.8e},{amax:.6e},{global_maxG:.6e},"
-                    f"{signed_flux:.6e},{abs_flux:.6e}\n")
-
-    return global_maxG, signed_flux, abs_flux
+def load_checkpoint(path):
+    data = np.load(path)
+    pr = data["prim"]
+    meta = data["meta"] if "meta" in data.files else None
+    if meta is None or len(meta) < 5:
+        return pr, 0.0, 0
+    t = float(meta[3])
+    step = int(meta[4])
+    return pr, t, step
 
 # ------------------------
 # Main
@@ -768,8 +177,12 @@ def main():
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    # --- create output dir ---
-    RUN_DIR = make_run_dir(base="results", unique=settings.get("RESULTS_UNIQUE", False))
+    # --- create output dir (or resume) ---
+    restart_path = resolve_restart_path(RESTART_PATH, rank)
+    if restart_path:
+        RUN_DIR = os.path.dirname(restart_path)
+    else:
+        RUN_DIR = make_run_dir(base="results", unique=settings.get("RESULTS_UNIQUE", False))
     if rank == 0:
         print(f"[startup] run directory: {RUN_DIR}", flush=True)
 
@@ -786,6 +199,7 @@ def main():
               f" P_EQ={P_EQ:.6g}, P_AMB={P_AMB:.6g}, RHO_AMB={RHO_AMB:.6g},"
               f" GAMMA_JET={GAMMA_JET:.6g}, ETA_RHO={ETA_RHO:.6g},"
               f" JET_RADIUS={JET_RADIUS:.3f}, NOZZLE_TURB={NOZZLE_TURB}", flush=True)
+        print(f"[startup] physics={PHYSICS}  B_INIT={B_INIT}  B0={B0}", flush=True)
 
     # domain decomposition in x
     nx_loc, x0, counts, offs = decompose_x(NX, comm)
@@ -801,24 +215,40 @@ def main():
 
     t = 0.0
     step = 0
+    if restart_path:
+        pr, t, step = load_checkpoint(restart_path)
+        if rank == 0:
+            print(f"[restart] loaded {restart_path} at t={t:.6e} step={step}", flush=True)
 
-    # initial BCs
-    apply_periodic_yz(pr)
-    if rank == size-1: apply_outflow_right_x(pr)
-    if rank == 0:      apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc,
-                                           JET_CENTER[1], JET_CENTER[2], rng)
+    if not restart_path:
+        # initial BCs
+        boundary.apply_periodic_yz(pr, NG)
+        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
+        if rank == 0:      nozzle.apply_nozzle_left_x(
+            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+        )
 
     # --- DEBUG: JIT warm-up ---
     if DEBUG:
-        _ = compute_rhs_muscl(pr, pr.shape[1], pr.shape[2], pr.shape[3], dx, dy, dz)
+        if PHYSICS == "hydro":
+            _ = srhd_core.compute_rhs_muscl(pr, pr.shape[1], pr.shape[2], pr.shape[3], dx, dy, dz)
+        elif PHYSICS == "rmhd":
+            _ = rmhd_core.compute_rhs_rmhd(pr, pr.shape[1], pr.shape[2], pr.shape[3], dx, dy, dz)
+        elif PHYSICS == "grhd":
+            _ = grhd_core.compute_rhs_grhd(pr, dx, dy, dz, offs[rank], NG)
+        else:
+            _ = grmhd_core.compute_rhs_grmhd(pr, dx, dy, dz, offs[rank], NG)
         comm.Barrier()
         if rank == 0:
-            print("[jit] compute_rhs_muscl compiled and first call done.", flush=True)
+            print("[jit] RHS kernel compiled and first call done.", flush=True)
 
     # --- time loop ---
     while t < T_END:
         # CFL timestep
-        amax_local = max_char_speed(pr, pr.shape[1], pr.shape[2], pr.shape[3])
+        if PHYSICS in ("hydro", "grhd"):
+            amax_local = srhd_core.max_char_speed(pr, pr.shape[1], pr.shape[2], pr.shape[3])
+        else:
+            amax_local = 1.0
         amax = comm.allreduce(amax_local, op=MPI.MAX)
         dt = CFL * min(dx, dy, dz) / max(amax, SMALL)
         if t + dt > T_END:
@@ -826,19 +256,41 @@ def main():
 
         # halo exchange + BCs
         exchange_halos(pr, comm, left, right)
-        apply_periodic_yz(pr)
-        if rank == size-1: apply_outflow_right_x(pr)
-        if rank == 0:      apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc,
-                                               JET_CENTER[1], JET_CENTER[2], rng)
+        boundary.apply_periodic_yz(pr, NG)
+        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
+        if rank == 0:      nozzle.apply_nozzle_left_x(
+            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+        )
 
         # advance one step
-        pr = step_ssprk2(pr, dx, dy, dz, dt)
+        if PHYSICS == "hydro":
+            if RK_ORDER == 3:
+                pr = srhd_core.step_ssprk3(pr, dx, dy, dz, dt)
+            else:
+                pr = srhd_core.step_ssprk2(pr, dx, dy, dz, dt)
+        elif PHYSICS == "rmhd":
+            if RK_ORDER == 3:
+                pr = rmhd_core.step_ssprk3(pr, dx, dy, dz, dt)
+            else:
+                pr = rmhd_core.step_ssprk2(pr, dx, dy, dz, dt)
+        elif PHYSICS == "grhd":
+            if RK_ORDER == 3:
+                pr = grhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs[rank], NG)
+            else:
+                pr = grhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs[rank], NG)
+        else:
+            if RK_ORDER == 3:
+                pr = grmhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs[rank], NG)
+            else:
+                pr = grmhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs[rank], NG)
 
         # re-apply BCs after update
-        apply_periodic_yz(pr)
-        if rank == size-1: apply_outflow_right_x(pr)
-        if rank == 0:      apply_nozzle_left_x(pr, dx, dy, dz, ny_loc, nz_loc,
-                                               JET_CENTER[1], JET_CENTER[2], rng)
+        boundary.apply_periodic_yz(pr, NG)
+        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
+        if rank == 0:      nozzle.apply_nozzle_left_x(
+            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+        )
+        pr = dissipation.apply_causal_dissipation(pr, dt, settings)
 
         # update time, step count
         t += dt
@@ -860,20 +312,44 @@ def main():
         # output + diagnostics
         if step % OUT_EVERY == 0 or abs(t - T_END) < 1e-14:
             fname = os.path.join(RUN_DIR, f"jet3d_rank{rank:04d}_step{step:06d}.npz")
-            np.savez(
-                fname,
-                rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
-                meta = np.array([dx, dy, dz, t], dtype=np.float64),
-                comment = "3D SRHD MUSCL block (with ghosts)."
-            )
+            if PHYSICS in ("hydro", "grhd"):
+                if pr.shape[0] > 5:
+                    np.savez(
+                        fname,
+                        rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4], pi=pr[5],
+                        meta = np.array([dx, dy, dz, t], dtype=np.float64),
+                        comment = "3D SRHD/GRHD block (with ghosts)."
+                    )
+                else:
+                    np.savez(
+                        fname,
+                        rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
+                        meta = np.array([dx, dy, dz, t], dtype=np.float64),
+                        comment = "3D SRHD/GRHD block (with ghosts)."
+                    )
+            else:
+                np.savez(
+                    fname,
+                    rho = pr[0], vx=pr[1], vy=pr[2], vz=pr[3], p=pr[4],
+                    Bx = pr[5], By=pr[6], Bz=pr[7], psi=pr[8],
+                    meta = np.array([dx, dy, dz, t], dtype=np.float64),
+                    comment = "3D RMHD/GRMHD block (with ghosts)."
+                )
             if rank == 0:
                 print(f"[io] wrote {fname}", flush=True)
 
-            global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
-                pr, dx, dy, dz, offs[rank], counts, comm, rank,
-                step, t, dt, amax, RUN_DIR,
-                prim_to_cons, NG
-            )
+            if PHYSICS in ("hydro", "grhd"):
+                global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, dt, amax, RUN_DIR,
+                    srhd_core.prim_to_cons, NG
+                )
+            else:
+                global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, dt, amax, RUN_DIR,
+                    rmhd_core.prim_to_cons_rmhd, NG
+                )
             if rank == 0:
                 print(f"[diag] step={step} maxGamma={global_maxG:.3f} "
                       f"inletFlux_signed={flux_signed:.3e} inletFlux_abs={flux_abs:.3e}",
@@ -884,6 +360,22 @@ def main():
                 pr, dx, dy, dz, offs[rank], counts, comm, rank,
                 step, t, RUN_DIR, V_MAX, NG
             )
+            if PHYSICS in ("rmhd", "grmhd"):
+                diagnostics.compute_divb_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, NG
+                )
+
+        if CHECKPOINT_EVERY > 0 and (step % CHECKPOINT_EVERY == 0):
+            ckpt = os.path.join(RUN_DIR, f"checkpoint_rank{rank:04d}_step{step:06d}.npz")
+            np.savez(
+                ckpt,
+                prim = pr,
+                meta = np.array([dx, dy, dz, t, step], dtype=np.float64),
+                comment = "Checkpoint (with ghosts)."
+            )
+            if rank == 0:
+                print(f"[ckpt] wrote {ckpt}", flush=True)
     if rank == 0:
         print("Done.", flush=True)
 

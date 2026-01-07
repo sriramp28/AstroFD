@@ -42,7 +42,7 @@
   "RESTART_PATH": null,
 
   // physics mode
-  "PHYSICS": "hydro",   // "hydro" | "rmhd" | "grhd" | "grmhd"
+  "PHYSICS": "grhd",   // "hydro" | "rmhd"
 
   // GLM cleaning for ∇·B
   "GLM_CH": 1.0,        // hyperbolic wave speed (≈ max signal speed)
@@ -57,7 +57,7 @@
   "P_MAX": 2.0,
 
   // GR placeholders
-  "GR_METRIC": "minkowski",
+  "GR_METRIC": "schwarzschild",
   "GR_MASS": 1.0,
   "GR_SPIN": 0.0,
 

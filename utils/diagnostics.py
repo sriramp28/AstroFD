@@ -34,7 +34,11 @@ def compute_diagnostics_and_write(pr, dx, dy, dz,
         for j in range(NG, NG + ny_loc):
             for k in range(NG, NG + nz_loc):
                 rho, vx, vy, vz, p = pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k]
-                _, Sx, _, _, _ = prim_to_cons(rho, vx, vy, vz, p)
+                if pr.shape[0] >= 9:
+                    Bx, By, Bz, psi = pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k]
+                    _, Sx, _, _, _, _, _, _, _ = prim_to_cons(rho, vx, vy, vz, p, Bx, By, Bz, psi)
+                else:
+                    _, Sx, _, _, _ = prim_to_cons(rho, vx, vy, vz, p)
                 inlet_flux += Sx * dy * dz
 
     total_inlet_flux = comm.allreduce(inlet_flux, op=MPI.SUM)
@@ -120,3 +124,60 @@ def compute_centerline_and_write(pr, dx, dy, dz,
                 f.write(f"{step},{t:.8e},{i_global[ii]},{x[ii]:.8e},"
                         f"{out_G[ii]:.8e},{out_rho[ii]:.8e},"
                         f"{out_p[ii]:.8e},{out_vx[ii]:.8e}\n")
+
+def compute_divb_and_write(pr, dx, dy, dz,
+                           offs_x, counts, comm, rank,
+                           step, t, run_dir, NG):
+    """
+    Compute and append divB diagnostics for RMHD runs.
+    CSV columns: step,time,divB_max,divB_rms,divB_mean
+    """
+    if pr.shape[0] < 8:
+        return None, None, None
+
+    nx_loc = pr.shape[1] - 2*NG
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+
+    divb_vals = []
+    for i in range(NG, NG + nx_loc):
+        for j in range(NG, NG + ny_loc):
+            for k in range(NG, NG + nz_loc):
+                dBx = (pr[5, i+1, j, k] - pr[5, i-1, j, k]) / (2.0*dx)
+                dBy = (pr[6, i, j+1, k] - pr[6, i, j-1, k]) / (2.0*dy)
+                dBz = (pr[7, i, j, k+1] - pr[7, i, j, k-1]) / (2.0*dz)
+                divb_vals.append(dBx + dBy + dBz)
+
+    if divb_vals:
+        divb_arr = np.array(divb_vals, dtype=np.float64)
+        local_max = np.max(np.abs(divb_arr))
+        local_sum = np.sum(divb_arr)
+        local_sumsq = np.sum(divb_arr*divb_arr)
+        local_n = divb_arr.size
+    else:
+        local_max = 0.0
+        local_sum = 0.0
+        local_sumsq = 0.0
+        local_n = 0
+
+    global_max = comm.allreduce(local_max, op=MPI.MAX)
+    global_sum = comm.allreduce(local_sum, op=MPI.SUM)
+    global_sumsq = comm.allreduce(local_sumsq, op=MPI.SUM)
+    global_n = comm.allreduce(local_n, op=MPI.SUM)
+
+    if global_n > 0:
+        global_mean = global_sum / global_n
+        global_rms = np.sqrt(global_sumsq / global_n)
+    else:
+        global_mean = 0.0
+        global_rms = 0.0
+
+    if rank == 0:
+        fn = os.path.join(run_dir, "divb.csv")
+        new = not os.path.exists(fn)
+        with open(fn, "a") as f:
+            if new:
+                f.write("step,time,divB_max,divB_rms,divB_mean\n")
+            f.write(f"{step},{t:.8e},{global_max:.6e},{global_rms:.6e},{global_mean:.6e}\n")
+
+    return global_max, global_rms, global_mean

@@ -34,7 +34,7 @@
   "NG": 2,
   "RECON": "muscl",
   "LIMITER": "mc",
-  "RIEMANN": "hlle",
+  "RIEMANN": "hllc",
   "RK_ORDER": 2,
   "DEBUG": true,
   "RESULTS_UNIQUE": false,
@@ -42,7 +42,7 @@
   "RESTART_PATH": null,
 
   // physics mode
-  "PHYSICS": "hydro",   // "hydro" | "rmhd" | "grhd" | "grmhd"
+  "PHYSICS": "hydro",   // "hydro" | "rmhd"
 
   // GLM cleaning for ∇·B
   "GLM_CH": 1.0,        // hyperbolic wave speed (≈ max signal speed)

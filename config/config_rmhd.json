@@ -42,28 +42,17 @@
   "RESTART_PATH": null,
 
   // physics mode
-  "PHYSICS": "hydro",   // "hydro" | "rmhd" | "grhd" | "grmhd"
+  "PHYSICS": "rmhd",   // "hydro" | "rmhd" | "grhd" | "grmhd"
 
   // GLM cleaning for ∇·B
   "GLM_CH": 1.0,        // hyperbolic wave speed (≈ max signal speed)
   "GLM_CP": 0.1,        // parabolic damping strength
 
   // magnetic field init at the nozzle
-  "B_INIT": "none",     // "none" | "poloidal" | "toroidal"
+  "B_INIT": "poloidal",     // "none" | "poloidal" | "toroidal"
   "B0": 0.05,           // reference field magnitude
 
   // caps (reuse existing)
   "V_MAX": 0.9999,
-  "P_MAX": 2.0,
-
-  // GR placeholders
-  "GR_METRIC": "minkowski",
-  "GR_MASS": 1.0,
-  "GR_SPIN": 0.0,
-
-  // dissipation placeholders
-  "DISSIPATION_ENABLED": false,
-  "DISSIPATION_MODEL": "israel_stewart",
-  "RELAX_TAU": 0.1,
-  "BULK_ZETA": 0.0
+  "P_MAX": 2.0
 }
