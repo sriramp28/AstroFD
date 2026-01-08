@@ -20,8 +20,8 @@ The code targets relativistic jet simulations and SN-lite core-collapse
 scenarios with configurable nozzle injection, GLM divergence cleaning,
 causal dissipation, two-temperature relaxation, non-ideal MHD extensions,
 H/He non-equilibrium chemistry, and parametric neutrino heating. This
-report documents the governing equations, numerical methods, physical
-modules, diagnostics, and validation tests.
+report provides full governing equations, variable definitions, numerical
+procedures, and validation workflows for reproducible research.
 \end{abstract}
 
 \section{Introduction}
@@ -32,26 +32,25 @@ It combines robust conservative discretizations with optional high-order
 reconstruction and flexible physics modules.
 
 \section{Physical Background and Literature}
-Relativistic jet modeling is rooted in SRHD and RMHD formulations that
-capture ultrarelativistic flows, shock propagation, and magnetic stress
-transport \cite{marti1999, anile1989, komissarov1999}. The standard
-formulation for GRHD/GRMHD uses the Valencia 3+1 split
-\cite{banyuls1997, font2008} and has been validated in astrophysical
-codes such as HARM \cite{gammie2003} and ECHO \cite{delzanna2007}.
+Relativistic jet modeling relies on SRHD and RMHD formulations for
+ultrarelativistic flows, shocks, and magnetic stresses
+\cite{marti1999, anile1989, komissarov1999}. GRHD/GRMHD is commonly
+expressed using the Valencia 3+1 split \cite{banyuls1997, font2008}
+with widely used astrophysical implementations such as HARM and ECHO
+\cite{gammie2003, delzanna2007}. Divergence control in MHD is essential;
+GLM cleaning provides a robust hyperbolic/parabolic mechanism
+\cite{dedner2002, mignone2010}.
 
-For ideal MHD, divergence control is required to maintain
-$\nabla \cdot \mathbf{B} = 0$; GLM cleaning provides a robust approach
-\cite{dedner2002, mignone2010}. High-order reconstruction methods such as
-PPM and WENO improve accuracy in smooth regions while retaining stability
-at discontinuities \cite{colella1984, jiang1996}. Time integration with
-SSPRK schemes provides strong-stability-preserving updates for
-hyperbolic systems \cite{gottlieb2001}.
+High-order reconstruction methods such as PPM and WENO improve accuracy in
+smooth regions while maintaining stability across discontinuities
+\cite{colella1984, jiang1996}. SSPRK time integration provides strong
+stability-preserving updates for hyperbolic systems \cite{gottlieb2001}.
 
-SN-lite physics follows parametric heating and cooling models commonly
-used in core-collapse studies \cite{janka2001, janka2012}. Causal
-relativistic dissipation adopts Israel-Stewart formulations
-\cite{israel1979, rezolla2013}. Resistive and non-ideal MHD terms provide
-controlled explorations of reconnection and drift physics
+SN-lite physics uses parametric heating and cooling models motivated by
+core-collapse supernova literature \cite{janka2001, janka2012}. Causal
+relativistic dissipation follows Israel--Stewart-type formulations
+\cite{israel1979, rezolla2013}. Resistive and non-ideal MHD extend ideal
+models for controlled exploration of reconnection and drift physics
 \cite{palenzuela2009}.
 
 \section{Notation and Variables}
@@ -61,7 +60,7 @@ components. The 4-velocity is $u^\mu$, Lorentz factor is
 $W = (1 - v^2)^{-1/2}$, and the specific enthalpy is
 $h = 1 + e + p/\rho$. The ideal-gas EOS is $p = (\gamma - 1) \rho e$.
 
-\begin{table}[h]
+\begin{table}[ht]
 \centering
 \begin{tabular}{l l}
 \hline
@@ -75,13 +74,16 @@ $v^i$ & 3-velocity \\
 $W$ & Lorentz factor \\
 $h$ & specific enthalpy \\
 $T^{\mu\nu}$ & stress-energy tensor \\
-$B^i$ & magnetic field \\
+$B^i$ & magnetic field (lab frame) \\
 $b^\mu$ & magnetic 4-vector \\
 $\alpha$ & lapse \\
 $\beta^i$ & shift \\
 $\gamma_{ij}$ & spatial metric \\
 $\gamma$ & determinant of $\gamma_{ij}$ \\
 $\psi$ & GLM cleaning scalar \\
+$\Pi$ & bulk viscous pressure \\
+$\pi^{\mu\nu}$ & shear stress \\
+$q^\mu$ & heat flux \\
 \hline
 \end{tabular}
 \caption{Notation used in the governing equations.}
@@ -110,49 +112,50 @@ and the evolution equation is
 \partial_t U + \partial_i F^i(U) = S(U),
 \end{equation}
 where $U = (D, S_i, \tau)$, $F^i$ are the conservative fluxes, and $S$
-contains geometric and physical source terms (zero in flat SRHD).
+contains physical source terms (zero for flat SRHD).
 
 \subsection{RMHD: Ideal MHD and GLM Cleaning}
-Ideal RMHD adds Maxwell equations and the ideal constraint
-$F^{\mu\nu} u_\nu = 0$, with
+Ideal RMHD satisfies
 \begin{align}
-\nabla_\mu {^*F}^{\mu\nu} &= 0, \\
-\nabla_\mu F^{\mu\nu} &= J^\nu.
+\nabla_\mu (\rho u^\mu) &= 0, \\
+\nabla_\mu T^{\mu\nu} &= 0, \\
+\nabla_\mu {^*F}^{\mu\nu} &= 0,
 \end{align}
-The stress-energy tensor becomes
+with stress-energy tensor
 \begin{equation}
 T^{\mu\nu} = (\rho h + b^2) u^\mu u^\nu + \left(p + \frac{b^2}{2}\right) g^{\mu\nu} - b^\mu b^\nu,
 \end{equation}
 where $b^\mu$ is the magnetic 4-vector and $b^2 = b^\mu b_\mu$.
-The conservative variables include $B^i$ and the GLM scalar $\psi$.
-GLM cleaning uses
+Divergence control is enforced by GLM cleaning
+\cite{dedner2002, mignone2010}:
 \begin{align}
 \partial_t \mathbf{B} + \nabla \times \mathbf{E} + \nabla \psi &= 0, \\
-\partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi,
+\partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi.
 \end{align}
-with hyperbolic cleaning speed $c_h$ and damping $c_p$.
 
-\subsection{GRHD/GRMHD: Valencia Form}
-For fixed backgrounds, we use the 3+1 split with lapse $\alpha$, shift
+\subsection{GRHD/GRMHD: Valencia Formulation}
+For fixed backgrounds, we adopt a 3+1 split with lapse $\alpha$, shift
 $\beta^i$, and spatial metric $\gamma_{ij}$. The conservative update is
 \begin{equation}
 \partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
 \end{equation}
-where $U$ and $F^i$ include the GR corrections and $S$ collects metric
-source terms. The GRMHD stress-energy tensor uses the RMHD form, with
-metric contractions performed using $g_{\mu\nu}$.
+with conserved variables
+\begin{align}
+D &= \rho W, \\
+S_i &= (\rho h + b^2) W^2 v_i - \alpha b^0 b_i, \\
+\tau &= (\rho h + b^2) W^2 - \left(p + \frac{b^2}{2}\right) - D - (\alpha b^0)^2.
+\end{align}
+Metric source terms are computed from the fixed background.
 
 \subsection{Causal Dissipation}
-We evolve bulk pressure $\Pi$, shear stress $\pi^{\mu\nu}$, and heat flux
-$q^\mu$ with Israel--Stewart-type relaxation
+Israel--Stewart-type causal dissipation evolves bulk pressure $\Pi$,
+shear stress $\pi^{\mu\nu}$, and heat flux $q^\mu$ with relaxation
 \cite{israel1979, rezolla2013}:
 \begin{align}
 \tau_\Pi u^\alpha \nabla_\alpha \Pi + \Pi &= -\zeta \nabla_\alpha u^\alpha, \\
 \tau_\pi u^\alpha \nabla_\alpha \pi^{\mu\nu} + \pi^{\mu\nu} &= 2 \eta \sigma^{\mu\nu}, \\
-\tau_q u^\alpha \nabla_\alpha q^\mu + q^\mu &= -\kappa T \Delta^{\mu\nu} \nabla_\nu T,
+\tau_q u^\alpha \nabla_\alpha q^\mu + q^\mu &= -\kappa T \Delta^{\mu\nu} \nabla_\nu T.
 \end{align}
-where $\Delta^{\mu\nu} = g^{\mu\nu} + u^\mu u^\nu$ and
-$\sigma^{\mu\nu}$ is the shear tensor.
 
 \subsection{Two-Temperature Relaxation}
 Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
@@ -164,10 +167,10 @@ Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
 \subsection{H/He Non-Equilibrium Chemistry}
 Species mass fractions $X_s$ satisfy
 \begin{equation}
-\partial_t (\rho X_s) + \nabla \cdot (\rho X_s \mathbf{v}) = \rho \dot{X}_s,
+\partial_t (\rho X_s) + \nabla \cdot (\rho X_s \mathbf{v}) = \rho \dot{X}_s.
 \end{equation}
-with source terms $\dot{X}_s$ determined by ionization and recombination
-rates \cite{anninos1997}.
+The code uses collisional ionization and case-B recombination rates with
+IMEX updates, following standard fits \cite{cen1992}.
 
 \subsection{Passive Tracers}
 Passive tracers $C_k$ obey
@@ -181,18 +184,50 @@ Resistive MHD uses Ohm's law
 \begin{equation}
 \mathbf{E} + \mathbf{v} \times \mathbf{B} = \eta \mathbf{J},
 \end{equation}
-with $\mathbf{J} = \nabla \times \mathbf{B}$. Optional non-ideal terms
-include Hall and ambipolar contributions for controlled experiments
+with $\mathbf{J} = \nabla \times \mathbf{B}$. Optional Hall and ambipolar
+corrections are included as explicit terms for controlled experiments
 \cite{palenzuela2009}.
 
-\subsection{SN-lite Source Terms}
-SN-lite physics applies Newtonian gravity and parametric heating/cooling.
-The momentum source is $\rho \mathbf{g}$ with $\mathbf{g} = -\nabla \Phi$,
-and the energy source uses a net heating rate
+\subsection{SN-lite Gravity}
+Newtonian gravity is applied as a source term with
 \begin{equation}
-\dot{e} = Q^+(r, \rho, T) - Q^-(r, \rho, T),
+\mathbf{g} = -G M(r) \frac{\mathbf{r}}{(r^2 + \epsilon^2)^{3/2}},
 \end{equation}
-including optional lightbulb neutrino deposition \cite{janka2001}.
+using point-mass or monopole $M(r)$ options. Optionally, energy coupling
+adds a pressure work term proportional to $\rho \mathbf{v} \cdot \mathbf{g}$.
+
+\subsection{SN-lite Gain Heating/Cooling}
+The gain model applies pressure updates
+\begin{equation}
+\Delta p = (\gamma - 1) (Q^+ - Q^-) \, \mathcal{W}(r) \, \mathcal{S}(\rho, p, t) \, \Delta t,
+\end{equation}
+with a radial weight $\mathcal{W}(r)$ and scaling $\mathcal{S}$. Implemented
+radial weights include:
+\begin{align}
+\mathcal{W}_{\mathrm{sph}} &= \left(1 + \xi^2\right)^{-1}, \quad \xi = \frac{r - r_0}{r_1}, \\
+\mathcal{W}_{\mathrm{pow}} &= \left(\frac{r_0}{r}\right)^{p}, \\
+\mathcal{W}_{\mathrm{exp}} &= \exp\left(-\frac{|r - r_0|}{r_1}\right), \\
+\mathcal{W}_{\mathrm{gauss}} &= \exp\left(-\left(\frac{r - r_0}{r_1}\right)^2\right).
+\end{align}
+Density and pressure scalings use optional exponents, and a time decay
+factor $\exp[-(t - t_0)/\tau]$ can be applied.
+
+\subsection{SN-lite Neutrino Lightbulb}
+The lightbulb model applies a heating/cooling term using
+\begin{align}
+F_\nu &= \frac{L_\nu}{4 \pi r^2}, \\
+\tau_{\mathrm{eff}} &= \max(\tau_0, \kappa \rho r), \\
+Q^+ &= C_{\mathrm{abs}} F_\nu \epsilon_\nu e^{-\tau_{\mathrm{eff}}} \, \mathcal{W}(r), \\
+Q^- &= C_{\mathrm{cool}} \rho T^{n},
+\end{align}
+with the same radial weight $\mathcal{W}(r)$ and optional time decay.
+
+\subsection{Radiation--Plasma Coupling}
+Optional radiation coupling relaxes the gas temperature toward $T_{\rm rad}$:
+\begin{equation}
+\frac{dT}{dt} = -\lambda (T - T_{\rm rad}),
+\end{equation}
+with $T \approx p/\rho$ in code units and a configurable coupling rate.
 
 \section{Numerical Methods}
 \subsection{Finite-Volume Discretization}
@@ -203,11 +238,20 @@ ghost zones. The semi-discrete update is
 -\frac{F^y_{i,j+1/2,k} - F^y_{i,j-1/2,k}}{\Delta y}
 -\frac{F^z_{i,j,k+1/2} - F^z_{i,j,k-1/2}}{\Delta z} + S_{i,j,k}.
 \end{equation}
+The timestep is set by a CFL constraint
+\begin{equation}
+\Delta t = C_{\mathrm{CFL}} \min\left(\frac{\Delta x}{a_{\max}}, \frac{\Delta y}{a_{\max}}, \frac{\Delta z}{a_{\max}}\right),
+\end{equation}
+where $a_{\max}$ is the maximum signal speed.
 
 \subsection{Reconstruction}
-Reconstruction options include MUSCL with MC/minmod/van Leer limiters,
-PPM \cite{colella1984}, and WENO5 \cite{jiang1996}. Primitive variables
-are reconstructed to cell faces before Riemann solves.
+Primitive variables are reconstructed to cell faces. MUSCL uses a limited
+slope
+\begin{equation}
+\Delta q_i = \phi(\Delta q_{i-1/2}, \Delta q_{i+1/2}),
+\end{equation}
+with MC/minmod/van Leer limiters. PPM and WENO5 are available for higher
+order accuracy \cite{colella1984, jiang1996}.
 
 \subsection{Riemann Solvers}
 HLLE provides a robust baseline. HLLC is used for hydro, and HLLD/full
@@ -219,18 +263,16 @@ We support SSPRK2 and SSPRK3 integration \cite{gottlieb2001}.
 SSPRK2 uses
 \begin{align}
 U^{(1)} &= U^n + \Delta t L(U^n), \\
-U^{n+1} &= \frac{1}{2} U^n + \frac{1}{2} \left(U^{(1)} + \Delta t L(U^{(1)})\right),
+U^{n+1} &= \frac{1}{2} U^n + \frac{1}{2} \left(U^{(1)} + \Delta t L(U^{(1)})\right).
 \end{align}
-while SSPRK3 uses the standard three-stage formulation.
 
 \subsection{Source Term Coupling and IMEX}
-Source terms are applied with operator splitting. For stiff terms (e.g.,
-causal dissipation), we use subcycled IMEX updates of the form
+Source terms are applied with operator splitting. For stiff terms, we
+apply implicit relaxation with subcycled updates
 \begin{align}
 U^* &= U^n + \Delta t L(U^n), \\
-U^{n+1} &= U^* + \Delta t S(U^{n+1}),
+U^{n+1} &= U^* + \Delta t S(U^{n+1}).
 \end{align}
-with implicit treatment of $S$ over short substeps.
 
 \subsection{Primitive Recovery}
 Primitive recovery solves for $(\rho, p, v_i)$ given the conservative
@@ -267,7 +309,18 @@ fluxes, centerline profiles, divB statistics, SN shock radius and gain
 mass, cocoon pressure, mixing layer thickness, and optional performance
 counters. Diagnostics are written as CSV files in each run directory.
 
-\section{Validation}
+\section{Verification and Validation}
+We track qualitative stability and quantitative thresholds in validation
+scripts. Error norms are defined as
+\begin{align}
+L_1 &= \frac{1}{N} \sum_i |u_i - u_i^{\mathrm{ref}}|, \\
+L_2 &= \left(\frac{1}{N} \sum_i (u_i - u_i^{\mathrm{ref}})^2\right)^{1/2}, \\
+L_\infty &= \max_i |u_i - u_i^{\mathrm{ref}}|,
+\end{align}
+with an observed convergence rate
+\begin{equation}
+\mathcal{P} = \frac{\log(L(h_1)/L(h_2))}{\log(h_1/h_2)}.
+\end{equation}
 Validation suites cover reconstruction and limiter behavior, Riemann
 solver checks, GR Kerr-Schild runs, orthonormal flux evaluation, restart
 regression, and SN-lite tests (freefall, Sedov, stalled shock, and
@@ -282,7 +335,7 @@ code records diagnostics in CSV for post-processing and comparison.
 Table \ref{tab:config-summary} lists a compact reference of commonly
 used configuration switches and suggested values for jets and SN-lite.
 
-\begin{table}[h]
+\begin{table}[ht]
 \centering
 \begin{tabular}{l l l}
 \hline
@@ -309,28 +362,28 @@ table generated from the latest validation run. The figures can be
 regenerated with \texttt{tools/make\_doc\_figures.py}.
 
 \subsection{Jet Propagation Snapshot}
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/jet_rho_midZ.png}
 \caption{Jet density slice at mid-Z from the latest run.}
 \end{figure}
 
 \subsection{Centerline Lorentz Factor}
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/centerline_gamma.png}
 \caption{Centerline Lorentz factor profile from the latest run.}
 \end{figure}
 
 \subsection{RMHD divB Control}
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/divb_max.png}
 \caption{divB max over time from the latest RMHD run segment.}
 \end{figure}
 
 \subsection{SN-lite Shock Evolution}
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/sn_shock_radius.png}
 \caption{SN-lite shock radius evolution from the latest run segment.}
