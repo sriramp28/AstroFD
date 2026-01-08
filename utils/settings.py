@@ -54,6 +54,10 @@ def load_settings():
         SN_GAIN_WIDTH=0.1,
         SN_HEATING_RHO_EXP=0.0,
         SN_HEATING_P_EXP=0.0,
+        SN_HEATING_TIME_TAU=0.0,
+        SN_HEATING_TIME_T0=0.0,
+        SN_COOLING_TEXP=0.0,
+        SN_COOLING_TREF=1.0,
         SN_SHOCK_P_RATIO=1.2,
         SN_SHOCK_P_REF=None,
         # SN-lite EOS + composition

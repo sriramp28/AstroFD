@@ -28,7 +28,7 @@ def apply_cooling_heating(pr, dt, cfg):
     return pr
 
 
-def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
+def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng, t):
     """
     Parametric SN-lite heating/cooling applied to pressure.
     Models a gain region with optional radial profiles.
@@ -45,6 +45,10 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
     r1 = float(cfg.get("SN_GAIN_WIDTH", 0.1))
     rho_exp = float(cfg.get("SN_HEATING_RHO_EXP", 0.0))
     p_exp = float(cfg.get("SN_HEATING_P_EXP", 0.0))
+    tau = float(cfg.get("SN_HEATING_TIME_TAU", 0.0))
+    t0 = float(cfg.get("SN_HEATING_TIME_T0", 0.0))
+    cool_texp = float(cfg.get("SN_COOLING_TEXP", 0.0))
+    cool_tref = float(cfg.get("SN_COOLING_TREF", 1.0))
     gamma = float(cfg.get("GAMMA", 5.0/3.0))
     pmax = float(cfg.get("P_MAX", 1.0))
     center = cfg.get("SN_GRAVITY_CENTER", [0.5*cfg.get("Lx", 1.0), 0.5*cfg.get("Ly", 1.0), 0.5*cfg.get("Lz", 1.0)])
@@ -103,6 +107,13 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
                         scale *= rho ** rho_exp
                     if p_exp != 0.0:
                         scale *= max(p_local, 1e-12) ** p_exp
+                    if tau > 0.0:
+                        tnorm = (t - t0) / max(tau, 1e-12)
+                        if tnorm > 0.0:
+                            scale *= pow(2.718281828, -tnorm)
+                    if cool_texp != 0.0:
+                        tgas = p_local / max(rho, 1e-12)
+                        scale *= (max(tgas, 1e-12) / max(cool_tref, 1e-12)) ** cool_texp
                     dp = (gamma - 1.0) * (heat - cool) * scale * dt
                     p = p_local + dp
                     if p < 1e-12:

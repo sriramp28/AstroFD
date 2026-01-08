@@ -31,3 +31,4 @@ This file tracks the current plan and completion status so work can resume easil
 ## Notes
 
 - Keep commit messages referencing this roadmap file when updating progress.
+- TODO: tighten diagnostics thresholds (divB, shock radius trends) once we set expected ranges.
