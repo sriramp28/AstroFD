@@ -17,6 +17,7 @@ STEPS = [
 def main():
     ap = argparse.ArgumentParser(description="Run expanded validation suite.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--quick", action="store_true", help="run a reduced, faster subset")
     ap.add_argument("--skip-rmhd", action="store_true", help="skip RMHD/GRMHD validations")
     ap.add_argument("--skip-gr", action="store_true", help="skip GRMHD validations")
     ap.add_argument("--skip-sn", action="store_true", help="skip SN-lite validations")
@@ -25,13 +26,24 @@ def main():
     args = ap.parse_args()
 
     failed = []
-    for name, cmd in STEPS:
+    steps = STEPS
+    if args.quick:
+        steps = [
+            ("smoke", ["python", "tools/run_smoke_suite.py"]),
+            ("sn", ["python", "tools/run_sn_tests.py"]),
+            ("eos", ["python", "tools/run_eos_smoke.py"]),
+            ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "50"]),
+        ]
+
+    for name, cmd in steps:
         if name == "smoke":
             cmd = [args.python, "tools/run_smoke_suite.py"]
             if args.skip_rmhd:
                 cmd.append("--skip-rmhd")
             if args.skip_gr:
                 cmd.append("--skip-gr")
+            if args.quick:
+                cmd.extend(["--skip-rmhd", "--skip-gr"])
         if name == "schemes" and args.skip_rmhd:
             cmd = [args.python, "tools/validate_schemes.py", "--skip-rmhd"]
         if name in ("hlld", "rmhd_recovery") and args.skip_rmhd:
@@ -40,6 +52,10 @@ def main():
             cmd = [args.python, "tools/run_eos_smoke.py"]
             if args.skip_gr:
                 cmd.append("--skip-gr")
+            if args.quick:
+                cmd.append("--skip-gr")
+        if name == "sn" and args.quick:
+            cmd = [args.python, "tools/run_sn_tests.py", "--no-verify"]
         if args.skip_sn and name == "sn":
             continue
         if args.skip_eos and name == "eos":
