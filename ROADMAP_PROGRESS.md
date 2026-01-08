@@ -13,7 +13,7 @@ This file tracks the current plan and completion status so work can resume easil
    - Checkpoint/restart
    - Performance hooks
 4. Diagnostics/analysis
-   - SN-specific metrics (shock radius, gain mass, heating efficiency)
+   - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
    - Expanded validation suite
 5. Neutrino transport (deferred)
 

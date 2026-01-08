@@ -181,3 +181,124 @@ def compute_divb_and_write(pr, dx, dy, dz,
             f.write(f"{step},{t:.8e},{global_max:.6e},{global_rms:.6e},{global_mean:.6e}\n")
 
     return global_max, global_rms, global_mean
+
+
+def compute_sn_diagnostics_and_write(pr, dx, dy, dz,
+                                     offs_x, counts, comm, rank,
+                                     step, t, run_dir, cfg, NG):
+    """
+    SN-lite diagnostics: shock radius, gain mass, heating efficiency.
+    CSV columns: step,time,shock_radius,gain_mass,heat_power,heat_abs,heating_eff
+    """
+    if cfg.get("PHYSICS") not in ("sn",):
+        return None
+
+    nx_loc = pr.shape[1] - 2*NG
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+
+    center = cfg.get("SN_GRAVITY_CENTER") or [0.5*cfg.get("Lx", 1.0),
+                                              0.5*cfg.get("Ly", 1.0),
+                                              0.5*cfg.get("Lz", 1.0)]
+    x0, y0, z0 = float(center[0]), float(center[1]), float(center[2])
+    p_ref = cfg.get("SN_SHOCK_P_REF")
+    if p_ref is None:
+        p_ref = cfg.get("P_AMB", cfg.get("P_EQ", 1.0e-2))
+    p_ratio = float(cfg.get("SN_SHOCK_P_RATIO", 1.2))
+    p_thresh = p_ratio * float(p_ref)
+
+    heat_enabled = bool(cfg.get("SN_HEATING_ENABLED", False))
+    model = str(cfg.get("SN_HEATING_MODEL", "gain_spherical")).lower()
+    h0 = float(cfg.get("SN_HEATING_RATE", 0.0))
+    c0 = float(cfg.get("SN_COOLING_RATE", 0.0))
+    r0 = float(cfg.get("SN_GAIN_RADIUS", 0.2))
+    r1 = float(cfg.get("SN_GAIN_WIDTH", 0.1))
+    rho_exp = float(cfg.get("SN_HEATING_RHO_EXP", 0.0))
+    p_exp = float(cfg.get("SN_HEATING_P_EXP", 0.0))
+
+    dV = dx * dy * dz
+    local_rsh = 0.0
+    gain_mass = 0.0
+    heat_power = 0.0
+    heat_abs = 0.0
+
+    for i in range(NG, NG + nx_loc):
+        x = (offs_x + (i - NG) + 0.5) * dx
+        for j in range(NG, NG + ny_loc):
+            y = (j - NG + 0.5) * dy
+            for k in range(NG, NG + nz_loc):
+                z = (k - NG + 0.5) * dz
+                rx = x - x0
+                ry = y - y0
+                rz = z - z0
+                r = (rx*rx + ry*ry + rz*rz) ** 0.5
+                p = pr[4, i, j, k]
+                if p >= p_thresh and r > local_rsh:
+                    local_rsh = r
+
+                if not heat_enabled:
+                    continue
+
+                heat = 0.0
+                cool = 0.0
+                if model == "gain_spherical":
+                    if r > r0:
+                        xi = (r - r0) / max(r1, 1e-12)
+                        weight = 1.0 / (1.0 + xi*xi)
+                        heat = h0 * weight
+                        cool = c0 * weight
+                elif model == "gain_exponential":
+                    if r >= r0:
+                        xi = (r - r0) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -xi)
+                        heat = h0 * weight
+                    else:
+                        xi = (r0 - r) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -xi)
+                        cool = c0 * weight
+                elif model == "gain_gaussian":
+                    if r >= r0:
+                        xi = (r - r0) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -(xi * xi))
+                        heat = h0 * weight
+                    else:
+                        xi = (r0 - r) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -(xi * xi))
+                        cool = c0 * weight
+                elif model == "constant":
+                    heat = h0
+                    cool = c0
+
+                if heat == 0.0 and cool == 0.0:
+                    continue
+
+                rho = pr[0, i, j, k]
+                if rho <= 0.0:
+                    continue
+                scale = 1.0
+                if rho_exp != 0.0:
+                    scale *= rho ** rho_exp
+                if p_exp != 0.0:
+                    scale *= max(p, 1e-12) ** p_exp
+                net = (heat - cool) * scale
+                if net > 0.0:
+                    gain_mass += rho * dV
+                heat_power += net * dV
+                heat_abs += (abs(heat) + abs(cool)) * scale * dV
+
+    global_rsh = comm.allreduce(local_rsh, op=MPI.MAX)
+    global_gain_mass = comm.allreduce(gain_mass, op=MPI.SUM)
+    global_heat_power = comm.allreduce(heat_power, op=MPI.SUM)
+    global_heat_abs = comm.allreduce(heat_abs, op=MPI.SUM)
+    eff = global_heat_power / global_heat_abs if global_heat_abs > 0.0 else 0.0
+
+    if rank == 0:
+        fn = os.path.join(run_dir, "sn_diagnostics.csv")
+        new = not os.path.exists(fn)
+        with open(fn, "a") as f:
+            if new:
+                f.write("step,time,shock_radius,gain_mass,heat_power,heat_abs,heating_eff\n")
+            f.write(f"{step},{t:.8e},{global_rsh:.8e},{global_gain_mass:.8e},"
+                    f"{global_heat_power:.8e},{global_heat_abs:.8e},{eff:.8e}\n")
+
+    return global_rsh, global_gain_mass, global_heat_power, global_heat_abs, eff

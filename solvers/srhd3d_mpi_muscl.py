@@ -517,6 +517,11 @@ def main():
                 pr, dx, dy, dz, offs[rank], counts, comm, rank,
                 step, t, RUN_DIR, V_MAX, NG
             )
+            if PHYSICS == "sn":
+                diagnostics.compute_sn_diagnostics_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings, NG
+                )
             if PHYSICS in ("rmhd", "grmhd"):
                 diagnostics.compute_divb_and_write(
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
