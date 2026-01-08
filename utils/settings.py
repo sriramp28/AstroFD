@@ -102,6 +102,7 @@ def load_settings():
         RELAX_TAU_HEAT=None,
         DISSIPATION_CAP_FRAC=0.5,
         DISSIPATION_ADVECT=True,
+        DISSIPATION_SUBCYCLES=1,
         # tracers
         N_TRACERS=0,
         TRACER_NAMES=None,
@@ -149,6 +150,7 @@ def load_settings():
         RADIATION_COUPLING_ENABLED=False,
         RADIATION_COEFF=0.0,
         RADIATION_T_RAD=0.0,
+        RADIATION_COUPLING_TARGET="gas",
         # kinetic effects (effective heating/pressure)
         KINETIC_EFFECTS_ENABLED=False,
         KINETIC_MODEL="shear",

@@ -140,6 +140,9 @@ def apply_radiation_coupling(pr, dt, cfg):
     gamma = float(cfg.get("GAMMA", 5.0/3.0))
     pmax = float(cfg.get("P_MAX", 1.0))
     ng = int(cfg.get("NG", 2))
+    target = str(cfg.get("RADIATION_COUPLING_TARGET", "gas")).lower()
+    two_temp = bool(cfg.get("TWO_TEMPERATURE", False))
+    thermo_off = int(cfg.get("THERMO_OFFSET", 0))
 
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
     for i in range(ng, nx - ng):
@@ -148,6 +151,15 @@ def apply_radiation_coupling(pr, dt, cfg):
                 rho = pr[0, i, j, k]
                 if rho <= 0.0:
                     continue
+                if target in ("electrons", "electron") and two_temp and pr.shape[0] >= thermo_off + 2:
+                    te = pr[thermo_off, i, j, k]
+                    dT = (t_rad - te) * coeff * dt
+                    te_new = te + dT
+                    if te_new < 1e-12:
+                        te_new = 1e-12
+                    pr[thermo_off, i, j, k] = te_new
+                    if target == "electrons":
+                        continue
                 t_gas = pr[4, i, j, k] / max(rho, 1e-12)
                 dT = (t_rad - t_gas) * coeff * dt
                 dp = (gamma - 1.0) * rho * dT
