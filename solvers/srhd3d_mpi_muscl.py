@@ -11,15 +11,30 @@ import os
 import sys
 import glob
 import time
-import numpy as np
-import numba as nb
-from mpi4py import MPI
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from utils.settings import load_settings
+
+settings = load_settings()
+if settings.get("OMP_NUM_THREADS") is not None:
+    nthreads = int(settings["OMP_NUM_THREADS"])
+    os.environ["OMP_NUM_THREADS"] = str(nthreads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(nthreads)
+    os.environ["MKL_NUM_THREADS"] = str(nthreads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(nthreads)
+if settings.get("NUMBA_NUM_THREADS") is not None:
+    try:
+        import numba as nb
+        nb.set_num_threads(int(settings["NUMBA_NUM_THREADS"]))
+    except Exception:
+        pass
+
+import numpy as np
+import numba as nb
+from mpi4py import MPI
 from utils.io_utils import make_run_dir, write_run_config
 from utils import diagnostics
 from core import srhd_core
@@ -34,19 +49,6 @@ from core import gravity
 from core import boundary
 from core import nozzle
 from core import adaptivity
-
-settings = load_settings()
-if settings.get("OMP_NUM_THREADS") is not None:
-    nthreads = int(settings["OMP_NUM_THREADS"])
-    os.environ["OMP_NUM_THREADS"] = str(nthreads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(nthreads)
-    os.environ["MKL_NUM_THREADS"] = str(nthreads)
-    os.environ["VECLIB_MAXIMUM_THREADS"] = str(nthreads)
-if settings.get("NUMBA_NUM_THREADS") is not None:
-    try:
-        nb.set_num_threads(int(settings["NUMBA_NUM_THREADS"]))
-    except Exception:
-        pass
 if settings.get("PHYSICS") == "sn":
     # Override gamma for SN-lite EOS without affecting other modes.
     settings["GAMMA"] = float(settings.get("SN_EOS_GAMMA", settings.get("GAMMA", 5.0/3.0)))

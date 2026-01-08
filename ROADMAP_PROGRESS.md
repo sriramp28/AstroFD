@@ -15,6 +15,7 @@ This file tracks the current plan and completion status so work can resume easil
    - Static nested refinement (done; single-rank)
    - Threading hooks (done; Numba/OpenMP settings)
    - Nonblocking halo exchange option (done)
+   - Thread env set before numpy/numba import for better scaling (done)
 4. Diagnostics/analysis
    - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
    - Expanded validation suite (done)
