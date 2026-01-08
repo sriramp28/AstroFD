@@ -28,11 +28,14 @@ def _plane_index(axis, coord, dx, dy, dz, n):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Flux budget through a plane for SRHD/RMHD outputs.")
+    ap = argparse.ArgumentParser(description="Flux budget through a plane or shell for SRHD/RMHD outputs.")
     ap.add_argument("npz", help="snapshot .npz")
     ap.add_argument("--axis", choices=["x", "y", "z"], default="x", help="plane normal axis")
     ap.add_argument("--plane-index", type=int, default=None, help="plane index in interior coords")
     ap.add_argument("--plane-coord", type=float, default=None, help="plane coordinate (same units as domain)")
+    ap.add_argument("--shell-radius", type=float, default=None, help="spherical shell radius")
+    ap.add_argument("--shell-center", type=float, nargs=3, default=None, help="shell center x y z")
+    ap.add_argument("--shell-thickness", type=float, default=None, help="shell thickness (default min cell)")
     ap.add_argument("--ng", type=int, default=2, help="ghost layers")
     args = ap.parse_args()
 
@@ -48,7 +51,44 @@ def main():
     ny = rho.shape[1] - 2*ng
     nz = rho.shape[2] - 2*ng
 
-    if args.plane_index is None:
+    if args.shell_radius is not None:
+        r0 = float(args.shell_radius)
+        dr = float(args.shell_thickness) if args.shell_thickness is not None else min(dx, dy, dz)
+        if dr <= 0.0:
+            dr = min(dx, dy, dz)
+        if args.shell_center is None:
+            cx = 0.5 * nx * dx
+            cy = 0.5 * ny * dy
+            cz = 0.5 * nz * dz
+        else:
+            cx, cy, cz = [float(v) for v in args.shell_center]
+        dV = dx * dy * dz
+        dA = dV / dr
+        flux = np.zeros(9 if is_rmhd else 5)
+        for i in range(ng, ng + nx):
+            x = (i - ng + 0.5) * dx
+            for j in range(ng, ng + ny):
+                y = (j - ng + 0.5) * dy
+                for k in range(ng, ng + nz):
+                    z = (k - ng + 0.5) * dz
+                    rx = x - cx; ry = y - cy; rz = z - cz
+                    r = np.sqrt(rx*rx + ry*ry + rz*rz)
+                    if abs(r - r0) > 0.5 * dr or r <= 0.0:
+                        continue
+                    nxr, nyr, nzr = rx / r, ry / r, rz / r
+                    if is_rmhd:
+                        prim = np.array([rho[i,j,k], vx[i,j,k], vy[i,j,k], vz[i,j,k], p[i,j,k],
+                                         Bx[i,j,k], By[i,j,k], Bz[i,j,k], psi[i,j,k]])
+                        Fx = rmhd_core.flux_rmhd_x(prim)
+                        Fy = rmhd_core.flux_rmhd_y(prim)
+                        Fz = rmhd_core.flux_rmhd_z(prim)
+                    else:
+                        Fx = srhd_core.flux_x(rho[i,j,k], vx[i,j,k], vy[i,j,k], vz[i,j,k], p[i,j,k])
+                        Fy = srhd_core.flux_y(rho[i,j,k], vx[i,j,k], vy[i,j,k], vz[i,j,k], p[i,j,k])
+                        Fz = srhd_core.flux_z(rho[i,j,k], vx[i,j,k], vy[i,j,k], vz[i,j,k], p[i,j,k])
+                    F = Fx * nxr + Fy * nyr + Fz * nzr
+                    flux[:F.size] += F * dA
+    elif args.plane_index is None:
         idx = _plane_index(args.axis, args.plane_coord, dx, dy, dz, {"x": nx, "y": ny, "z": nz}[args.axis])
     else:
         idx = args.plane_index
@@ -103,13 +143,17 @@ def main():
                     F = srhd_core.flux_z(rho[i,j,k], vx[i,j,k], vy[i,j,k], vz[i,j,k], p[i,j,k])
                 flux[:F.size] += F * dA
 
+    if args.shell_radius is not None:
+        label = f"shell_r={r0:.6e}"
+    else:
+        label = f"axis={args.axis} idx={idx}"
     if is_rmhd:
-        print(f"axis={args.axis} idx={idx} mass={flux[0]:.6e} "
-              f"momx={flux[1]:.6e} momy={flux[2]:.6e} momz={flux[3]:.6e} "
+        print(f"{label} mass={flux[0]:.6e} momx={flux[1]:.6e} "
+              f"momy={flux[2]:.6e} momz={flux[3]:.6e} "
               f"energy={flux[4]:.6e}")
     else:
-        print(f"axis={args.axis} idx={idx} mass={flux[0]:.6e} "
-              f"momx={flux[1]:.6e} momy={flux[2]:.6e} momz={flux[3]:.6e} "
+        print(f"{label} mass={flux[0]:.6e} momx={flux[1]:.6e} "
+              f"momy={flux[2]:.6e} momz={flux[3]:.6e} "
               f"energy={flux[4]:.6e}")
 
 

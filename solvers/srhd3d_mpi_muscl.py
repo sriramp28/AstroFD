@@ -12,6 +12,7 @@ import sys
 import glob
 import time
 import numpy as np
+import numba as nb
 from mpi4py import MPI
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,8 +33,20 @@ from core import plasma_microphysics
 from core import gravity
 from core import boundary
 from core import nozzle
+from core import adaptivity
 
 settings = load_settings()
+if settings.get("OMP_NUM_THREADS") is not None:
+    nthreads = int(settings["OMP_NUM_THREADS"])
+    os.environ["OMP_NUM_THREADS"] = str(nthreads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(nthreads)
+    os.environ["MKL_NUM_THREADS"] = str(nthreads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(nthreads)
+if settings.get("NUMBA_NUM_THREADS") is not None:
+    try:
+        nb.set_num_threads(int(settings["NUMBA_NUM_THREADS"]))
+    except Exception:
+        pass
 if settings.get("PHYSICS") == "sn":
     # Override gamma for SN-lite EOS without affecting other modes.
     settings["GAMMA"] = float(settings.get("SN_EOS_GAMMA", settings.get("GAMMA", 5.0/3.0)))
@@ -84,6 +97,10 @@ PERF_EVERY = int(settings.get("PERF_EVERY", 10))
 PERF_RESET_EVERY = int(settings.get("PERF_RESET_EVERY", 0))
 DISSIPATION_ENABLED = settings.get("DISSIPATION_ENABLED", False)
 BULK_ZETA = settings.get("BULK_ZETA", 0.0)
+ADAPTIVITY_ENABLED = bool(settings.get("ADAPTIVITY_ENABLED", False))
+ADAPTIVITY_MODE = str(settings.get("ADAPTIVITY_MODE", "nested_static")).lower()
+ADAPTIVITY_SUBCYCLES = settings.get("ADAPTIVITY_SUBCYCLES", None)
+HALO_EXCHANGE = str(settings.get("HALO_EXCHANGE", "blocking")).lower()
 N_TRACERS = int(settings.get("N_TRACERS", 0))
 TRACER_OFFSET = int(settings.get("TRACER_OFFSET", 5))
 TRACER_NAMES = settings.get("TRACER_NAMES", [])
@@ -114,12 +131,30 @@ def decompose_x(nx_glob, comm):
 # ------------------------
 # Blocking halo exchange using Sendrecv (robust + simple)
 # ------------------------
-def exchange_halos(pr, comm, left, right):
+def exchange_halos(pr, comm, left, right, mode="blocking"):
     """
     Exchange NG ghost layers along x with neighbors using blocking Sendrecv.
     pr shape: (NV, nx_loc + 2*NG, NY + 2*NG, NZ + 2*NG)
     Note: NV = 5 for base hydro, NV = 15 for hydro+IS dissipation, NV = 9 for RMHD.
     """
+    if mode == "nonblocking":
+        reqs = []
+        if left is not None:
+            sendL = np.ascontiguousarray(pr[:, NG:2*NG, :, :])
+            recvL = np.empty_like(sendL)
+            reqs.append(comm.Irecv(recvL, source=left, tag=20))
+            reqs.append(comm.Isend(sendL, dest=left, tag=21))
+        if right is not None:
+            sendR = np.ascontiguousarray(pr[:, -2*NG:-NG, :, :])
+            recvR = np.empty_like(sendR)
+            reqs.append(comm.Irecv(recvR, source=right, tag=21))
+            reqs.append(comm.Isend(sendR, dest=right, tag=20))
+        MPI.Request.Waitall(reqs)
+        if left is not None:
+            pr[:, 0:NG, :, :] = recvL
+        if right is not None:
+            pr[:, -NG:, :, :] = recvR
+        return
     # phase 1: exchange with left neighbor
     if left is not None:
         sendL = np.ascontiguousarray(pr[:, NG:2*NG, :, :])     # our first interior slab
@@ -311,6 +346,44 @@ def load_checkpoint(path):
     step = int(meta[4])
     return pr, t, step, shape
 
+
+def advance_block(pr, dx, dy, dz, dt, offs_x, ng):
+    if PHYSICS in ("hydro", "sn"):
+        if RK_ORDER == 3:
+            return srhd_core.step_ssprk3(pr, dx, dy, dz, dt)
+        return srhd_core.step_ssprk2(pr, dx, dy, dz, dt)
+    if PHYSICS == "rmhd":
+        if RK_ORDER == 3:
+            return rmhd_core.step_ssprk3(pr, dx, dy, dz, dt)
+        return rmhd_core.step_ssprk2(pr, dx, dy, dz, dt)
+    if PHYSICS == "grhd":
+        if RK_ORDER == 3:
+            return grhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng)
+        return grhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng)
+    if RK_ORDER == 3:
+        return grmhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs_x, ng)
+    return grmhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs_x, ng)
+
+
+def apply_sources(pr, dt, dx, dy, dz, offs_x, ng, t, step, menc, r_edges, comm):
+    pr = dissipation.apply_causal_dissipation(pr, dt, dx, dy, dz, settings)
+    pr = source_terms.apply_cooling_heating(pr, dt, settings)
+    pr = source_terms.apply_two_temperature(pr, dt, settings)
+    pr = chemistry.apply_ion_chemistry(pr, dt, settings)
+    if (PHYSICS == "sn" and settings.get("SN_GRAVITY_ENABLED", False)
+            and str(settings.get("SN_GRAVITY_MODEL", "point_mass")).lower() == "monopole"):
+        every = int(settings.get("SN_GRAVITY_UPDATE_EVERY", 1))
+        if every <= 0:
+            every = 1
+        if step % every == 0 or menc is None:
+            menc, r_edges = compute_monopole_mass(pr, dx, dy, dz, offs_x, ng, settings, comm)
+    pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs_x, ng, menc, r_edges)
+    pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs_x, ng, t)
+    pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, ng)
+    pr = source_terms.apply_radiation_coupling(pr, dt, settings)
+    pr = source_terms.apply_kinetic_effects(pr, dt, dx, dy, dz, settings, ng)
+    return pr, menc, r_edges
+
 # ------------------------
 # Main
 # ------------------------
@@ -344,6 +417,9 @@ def main():
               f" GAMMA_JET={GAMMA_JET:.6g}, ETA_RHO={ETA_RHO:.6g},"
               f" JET_RADIUS={JET_RADIUS:.3f}, NOZZLE_TURB={NOZZLE_TURB}", flush=True)
         print(f"[startup] physics={PHYSICS}  B_INIT={B_INIT}  B0={B0}", flush=True)
+        if ADAPTIVITY_ENABLED:
+            print(f"[startup] adaptivity={ADAPTIVITY_MODE} refinement={settings.get('ADAPTIVITY_REFINEMENT')}",
+                  flush=True)
 
     # domain decomposition in x
     nx_loc, x0, counts, offs = decompose_x(NX, comm)
@@ -370,6 +446,28 @@ def main():
         if rank == 0:
             print(f"[restart] loaded {restart_path} at t={t:.6e} step={step}", flush=True)
 
+    # adaptivity setup (single-rank nested refinement)
+    fine_info = None
+    pr_f = None
+    fine_subcycles = None
+    if ADAPTIVITY_ENABLED:
+        if size != 1:
+            raise RuntimeError("ADAPTIVITY_ENABLED currently requires a single MPI rank.")
+        if ADAPTIVITY_MODE != "nested_static":
+            raise RuntimeError("ADAPTIVITY_MODE must be 'nested_static'.")
+        fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
+        nx_f, ny_f, nz_f = fine_info["fine_shape"]
+        pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
+        adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
+        if ADAPTIVITY_SUBCYCLES is None:
+            fine_subcycles = int(fine_info["refine"])
+        else:
+            fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
+        if fine_subcycles < 1:
+            fine_subcycles = 1
+        if rank == 0:
+            print(f"[adaptivity] region box={fine_info['box']} subcycles={fine_subcycles}", flush=True)
+
     if not restart_path:
         # initial BCs
         boundary.apply_periodic_yz(pr, NG)
@@ -378,6 +476,8 @@ def main():
             nozzle.apply_nozzle_left_x(
                 pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
             )
+    if ADAPTIVITY_ENABLED and pr_f is not None:
+        adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
 
     # --- DEBUG: JIT warm-up ---
     if DEBUG:
@@ -412,7 +512,7 @@ def main():
             dt = T_END - t
 
         # halo exchange + BCs
-        exchange_halos(pr, comm, left, right)
+        exchange_halos(pr, comm, left, right, HALO_EXCHANGE)
         boundary.apply_periodic_yz(pr, NG)
         if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
         if rank == 0 and PHYSICS != "sn":
@@ -421,26 +521,7 @@ def main():
             )
 
         # advance one step
-        if PHYSICS in ("hydro", "sn"):
-            if RK_ORDER == 3:
-                pr = srhd_core.step_ssprk3(pr, dx, dy, dz, dt)
-            else:
-                pr = srhd_core.step_ssprk2(pr, dx, dy, dz, dt)
-        elif PHYSICS == "rmhd":
-            if RK_ORDER == 3:
-                pr = rmhd_core.step_ssprk3(pr, dx, dy, dz, dt)
-            else:
-                pr = rmhd_core.step_ssprk2(pr, dx, dy, dz, dt)
-        elif PHYSICS == "grhd":
-            if RK_ORDER == 3:
-                pr = grhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs[rank], NG)
-            else:
-                pr = grhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs[rank], NG)
-        else:
-            if RK_ORDER == 3:
-                pr = grmhd_core.step_ssprk3(pr, dx, dy, dz, dt, offs[rank], NG)
-            else:
-                pr = grmhd_core.step_ssprk2(pr, dx, dy, dz, dt, offs[rank], NG)
+        pr = advance_block(pr, dx, dy, dz, dt, offs[rank], NG)
 
         # re-apply BCs after update
         boundary.apply_periodic_yz(pr, NG)
@@ -449,22 +530,17 @@ def main():
             nozzle.apply_nozzle_left_x(
                 pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
             )
-        pr = dissipation.apply_causal_dissipation(pr, dt, dx, dy, dz, settings)
-        pr = source_terms.apply_cooling_heating(pr, dt, settings)
-        pr = source_terms.apply_two_temperature(pr, dt, settings)
-        pr = chemistry.apply_ion_chemistry(pr, dt, settings)
-        if (PHYSICS == "sn" and settings.get("SN_GRAVITY_ENABLED", False)
-                and str(settings.get("SN_GRAVITY_MODEL", "point_mass")).lower() == "monopole"):
-            every = int(settings.get("SN_GRAVITY_UPDATE_EVERY", 1))
-            if every <= 0:
-                every = 1
-            if step % every == 0 or menc is None:
-                menc, r_edges = compute_monopole_mass(pr, dx, dy, dz, offs[rank], NG, settings, comm)
-        pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG, menc, r_edges)
-        pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs[rank], NG, t)
-        pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, NG)
-        pr = source_terms.apply_radiation_coupling(pr, dt, settings)
-        pr = source_terms.apply_kinetic_effects(pr, dt, dx, dy, dz, settings, NG)
+        pr, menc, r_edges = apply_sources(pr, dt, dx, dy, dz, offs[rank], NG, t, step, menc, r_edges, comm)
+
+        # nested refinement update (single-rank)
+        if ADAPTIVITY_ENABLED and pr_f is not None:
+            dx_f, dy_f, dz_f = fine_info["fine_spacing"]
+            dt_f = dt / float(fine_subcycles)
+            for _ in range(fine_subcycles):
+                adaptivity.fill_fine_ghosts_from_coarse(pr_f, pr, fine_info, NG)
+                pr_f = advance_block(pr_f, dx_f, dy_f, dz_f, dt_f, 0, NG)
+                pr_f, _, _ = apply_sources(pr_f, dt_f, dx_f, dy_f, dz_f, 0, NG, t, step, None, None, comm)
+            adaptivity.restrict_coarse_from_fine(pr, pr_f, fine_info, NG)
 
         # update time, step count
         t += dt
@@ -566,6 +642,16 @@ def main():
                 diagnostics.compute_divb_and_write(
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, RUN_DIR, NG
+                )
+            if settings.get("DIAG_COCOON_ENABLED", False):
+                diagnostics.compute_cocoon_diagnostics_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings, NG, TRACER_OFFSET
+                )
+            if settings.get("DIAG_MIXING_ENABLED", False):
+                diagnostics.compute_mixing_diagnostics_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings, NG, TRACER_OFFSET
                 )
             if PERF_ENABLED:
                 perf_diag_accum += time.perf_counter() - diag_start

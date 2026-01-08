@@ -2,6 +2,8 @@
 import os, math, numpy as np
 from mpi4py import MPI
 
+_MIXING_HISTORY = {"time": None, "mass": None}
+
 def compute_diagnostics_and_write(pr, dx, dy, dz,
                                   offs_x, counts, comm, rank,
                                   step, t, dt, amax, run_dir, prim_to_cons, NG, is_rmhd=False):
@@ -302,3 +304,127 @@ def compute_sn_diagnostics_and_write(pr, dx, dy, dz,
                     f"{global_heat_power:.8e},{global_heat_abs:.8e},{eff:.8e}\n")
 
     return global_rsh, global_gain_mass, global_heat_power, global_heat_abs, eff
+
+
+def compute_cocoon_diagnostics_and_write(pr, dx, dy, dz,
+                                         offs_x, counts, comm, rank,
+                                         step, t, run_dir, cfg, NG, tracer_offset):
+    if not cfg.get("DIAG_COCOON_ENABLED", False):
+        return None
+    ntr = int(cfg.get("N_TRACERS", 0))
+    if ntr <= 0:
+        return None
+    tidx = int(cfg.get("DIAG_COCOON_TRACER_IDX", 0))
+    if tidx < 0 or tidx >= ntr:
+        return None
+    tmin = float(cfg.get("DIAG_COCOON_TRACER_MIN", 0.05))
+    tmax = float(cfg.get("DIAG_COCOON_TRACER_MAX", 1.0))
+    tmin = max(0.0, min(1.0, tmin))
+    tmax = max(tmin, min(1.0, tmax))
+
+    nx_loc = pr.shape[1] - 2*NG
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+    dV = dx * dy * dz
+
+    local_sum_p = 0.0
+    local_vol = 0.0
+    local_max_p = 0.0
+    idx = tracer_offset + tidx
+    for i in range(NG, NG + nx_loc):
+        for j in range(NG, NG + ny_loc):
+            for k in range(NG, NG + nz_loc):
+                tr = pr[idx, i, j, k]
+                if tmin <= tr <= tmax:
+                    p = pr[4, i, j, k]
+                    local_sum_p += p * dV
+                    local_vol += dV
+                    if p > local_max_p:
+                        local_max_p = p
+
+    global_sum_p = comm.allreduce(local_sum_p, op=MPI.SUM)
+    global_vol = comm.allreduce(local_vol, op=MPI.SUM)
+    global_max_p = comm.allreduce(local_max_p, op=MPI.MAX)
+    avg_p = global_sum_p / global_vol if global_vol > 0.0 else 0.0
+
+    if rank == 0:
+        fn = os.path.join(run_dir, "cocoon.csv")
+        new = not os.path.exists(fn)
+        with open(fn, "a") as f:
+            if new:
+                f.write("step,time,cocoon_p_avg,cocoon_p_max,cocoon_volume\n")
+            f.write(f"{step},{t:.8e},{avg_p:.8e},{global_max_p:.8e},{global_vol:.8e}\n")
+
+    return avg_p, global_max_p, global_vol
+
+
+def compute_mixing_diagnostics_and_write(pr, dx, dy, dz,
+                                         offs_x, counts, comm, rank,
+                                         step, t, run_dir, cfg, NG, tracer_offset):
+    if not cfg.get("DIAG_MIXING_ENABLED", False):
+        return None
+    ntr = int(cfg.get("N_TRACERS", 0))
+    if ntr <= 0:
+        return None
+    tidx = int(cfg.get("DIAG_MIXING_TRACER_IDX", 0))
+    if tidx < 0 or tidx >= ntr:
+        return None
+    tmin = float(cfg.get("DIAG_MIXING_MIN", 0.05))
+    tmax = float(cfg.get("DIAG_MIXING_MAX", 0.95))
+    tmin = max(0.0, min(1.0, tmin))
+    tmax = max(tmin, min(1.0, tmax))
+    xfrac = float(cfg.get("DIAG_MIXING_X_FRAC", 0.5))
+    xfrac = max(0.0, min(1.0, xfrac))
+
+    nx = int(cfg.get("NX", pr.shape[1] - 2*NG))
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+    i_glob = int(xfrac * nx)
+    i_glob = max(0, min(nx - 1, i_glob))
+    i_loc = i_glob - offs_x
+    if i_loc < 0 or i_loc >= pr.shape[1] - 2*NG:
+        local_min_r = float("inf")
+        local_max_r = 0.0
+        local_mass = 0.0
+    else:
+        i = NG + i_loc
+        center = cfg.get("JET_CENTER") or [0.0, 0.5*cfg.get("Ly", 1.0), 0.5*cfg.get("Lz", 1.0)]
+        y0, z0 = float(center[1]), float(center[2])
+        local_min_r = float("inf")
+        local_max_r = 0.0
+        local_mass = 0.0
+        idx = tracer_offset + tidx
+        dV = dx * dy * dz
+        for j in range(NG, NG + ny_loc):
+            y = (j - NG + 0.5) * dy
+            for k in range(NG, NG + nz_loc):
+                z = (k - NG + 0.5) * dz
+                tr = pr[idx, i, j, k]
+                if tmin <= tr <= tmax:
+                    r = math.sqrt((y - y0)**2 + (z - z0)**2)
+                    local_min_r = min(local_min_r, r)
+                    local_max_r = max(local_max_r, r)
+                    local_mass += pr[0, i, j, k] * dV
+
+    global_min_r = comm.allreduce(local_min_r, op=MPI.MIN)
+    global_max_r = comm.allreduce(local_max_r, op=MPI.MAX)
+    global_mass = comm.allreduce(local_mass, op=MPI.SUM)
+    thickness = max(0.0, global_max_r - global_min_r) if np.isfinite(global_min_r) else 0.0
+
+    if rank == 0:
+        prev_t = _MIXING_HISTORY["time"]
+        prev_m = _MIXING_HISTORY["mass"]
+        if prev_t is None or prev_m is None or t <= prev_t:
+            rate = 0.0
+        else:
+            rate = (global_mass - prev_m) / (t - prev_t)
+        _MIXING_HISTORY["time"] = t
+        _MIXING_HISTORY["mass"] = global_mass
+        fn = os.path.join(run_dir, "mixing.csv")
+        new = not os.path.exists(fn)
+        with open(fn, "a") as f:
+            if new:
+                f.write("step,time,x_index,mixing_thickness,mixing_mass,mixing_rate\n")
+            f.write(f"{step},{t:.8e},{i_glob},{thickness:.8e},{global_mass:.8e},{rate:.8e}\n")
+
+    return thickness, global_mass

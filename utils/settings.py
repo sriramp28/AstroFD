@@ -17,6 +17,7 @@ def load_settings():
         NX=128, NY=96, NZ=96, Lx=1.0, Ly=1.0, Lz=1.0,
         T_END=0.25, OUT_EVERY=50, PRINT_EVERY=10,
         NG=2, CFL=0.35, GAMMA=5.0/3.0,
+        HALO_EXCHANGE="blocking",
         # jet physics
         JET_RADIUS=0.12,
         JET_CENTER=None,
@@ -31,6 +32,15 @@ def load_settings():
         RK_ORDER=2,
         CHECKPOINT_EVERY=0,
         RESTART_PATH=None,
+        # adaptivity (static nested refinement; single-rank)
+        ADAPTIVITY_ENABLED=False,
+        ADAPTIVITY_MODE="nested_static",
+        ADAPTIVITY_REFINEMENT=2,
+        ADAPTIVITY_REGION=None,
+        ADAPTIVITY_SUBCYCLES=None,
+        # threading within ranks
+        NUMBA_NUM_THREADS=None,
+        OMP_NUM_THREADS=None,
         # ambient
         RHO_AMB=1.0, P_AMB=None,
         VX_AMB=0.0, VY_AMB=0.0, VZ_AMB=0.0,
@@ -169,6 +179,16 @@ def load_settings():
         PERF_ENABLED=False,
         PERF_EVERY=10,
         PERF_RESET_EVERY=0,
+        # diagnostics expansions
+        DIAG_COCOON_ENABLED=False,
+        DIAG_COCOON_TRACER_IDX=0,
+        DIAG_COCOON_TRACER_MIN=0.05,
+        DIAG_COCOON_TRACER_MAX=1.0,
+        DIAG_MIXING_ENABLED=False,
+        DIAG_MIXING_TRACER_IDX=0,
+        DIAG_MIXING_MIN=0.05,
+        DIAG_MIXING_MAX=0.95,
+        DIAG_MIXING_X_FRAC=0.5,
         # restart checks
         RESTART_STRICT=False,
     )
@@ -230,6 +250,13 @@ def load_settings():
     if s.get("DISSIPATION_ENABLED", False):
         if s.get("PHYSICS") in ("rmhd", "grmhd"):
             raise ValueError("DISSIPATION_ENABLED is supported only for hydro/grhd.")
+    if s.get("ADAPTIVITY_ENABLED", False):
+        if s.get("ADAPTIVITY_MODE", "nested_static") != "nested_static":
+            raise ValueError("ADAPTIVITY_MODE must be 'nested_static' for now.")
+        if s.get("PHYSICS") in ("sn", "grhd", "grmhd"):
+            raise ValueError("ADAPTIVITY_ENABLED currently supports hydro/rmhd only.")
+    if str(s.get("HALO_EXCHANGE", "blocking")).lower() not in ("blocking", "nonblocking"):
+        raise ValueError("HALO_EXCHANGE must be 'blocking' or 'nonblocking'.")
 
     # normalize nozzle perturbations: keep legacy NOZZLE_TURB behavior
     if s.get("NOZZLE_PERTURB") is None:

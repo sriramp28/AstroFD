@@ -12,9 +12,14 @@ This file tracks the current plan and completion status so work can resume easil
 3. Numerics/engineering
    - Checkpoint/restart (done)
    - Performance hooks (done)
+   - Static nested refinement (done; single-rank)
+   - Threading hooks (done; Numba/OpenMP settings)
+   - Nonblocking halo exchange option (done)
 4. Diagnostics/analysis
    - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
    - Expanded validation suite (done)
+   - Cocoon pressure + mixing diagnostics (done)
+   - Shell flux budgets (done)
 5. Neutrino transport (deferred)
 
 ## Completed highlights
@@ -32,3 +37,5 @@ This file tracks the current plan and completion status so work can resume easil
 
 - Keep commit messages referencing this roadmap file when updating progress.
 - TODO: tighten diagnostics thresholds (divB, shock radius trends) once we set expected ranges.
+- TODO: add GPU backends and stronger scaling optimizations.
+- TODO: improve RMHD primitive recovery robustness + diagnostics expansions (cocoon/mixing/shell fluxes).

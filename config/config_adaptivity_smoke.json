@@ -1,0 +1,17 @@
+{
+  "NX": 24,
+  "NY": 16,
+  "NZ": 16,
+  "T_END": 0.005,
+  "OUT_EVERY": 5,
+  "PRINT_EVERY": 1,
+  "CFL": 0.4,
+  "PHYSICS": "hydro",
+  "RECON": "muscl",
+  "RIEMANN": "hlle",
+  "NOZZLE_TURB": false,
+  "ADAPTIVITY_ENABLED": true,
+  "ADAPTIVITY_MODE": "nested_static",
+  "ADAPTIVITY_REFINEMENT": 2,
+  "ADAPTIVITY_REGION": [0.25, 0.75, 0.25, 0.75, 0.25, 0.75]
+}
