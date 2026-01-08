@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os, glob, numpy as np
 
 def latest_run_dir(base="results"):
@@ -9,6 +10,12 @@ def latest_run_dir(base="results"):
     return subs[-1] if subs else last
 
 def main():
+    ap = argparse.ArgumentParser(description="Verify RMHD output sanity checks.")
+    ap.add_argument("--max-divb-rel", type=float, default=None)
+    ap.add_argument("--max-psi", type=float, default=None)
+    ap.add_argument("--max-b", type=float, default=None)
+    args = ap.parse_args()
+
     run_dir = latest_run_dir()
     files = sorted(glob.glob(os.path.join(run_dir, "jet3d_rank0000_step*.npz")))
     if not files: raise SystemExit(f"No NPZ files in {run_dir}")
@@ -52,6 +59,13 @@ def main():
     denom = np.maximum(bnorm / max(dx, 1e-12), 1e-12)
     rel_divb = divb_max / np.max(denom)
     print(f"[verify-rmhd] divB max / (|B|/dx) = {rel_divb:.6e}")
+
+    if args.max_divb_rel is not None and rel_divb > args.max_divb_rel:
+        raise SystemExit(f"divB relative {rel_divb:.3e} > {args.max_divb_rel}")
+    if args.max_psi is not None and np.max(np.abs(psi[sl])) > args.max_psi:
+        raise SystemExit(f"psi max {np.max(np.abs(psi[sl])):.3e} > {args.max_psi}")
+    if args.max_b is not None and np.max(np.sqrt(B2)) > args.max_b:
+        raise SystemExit(f"|B| max {np.max(np.sqrt(B2)):.3e} > {args.max_b}")
 
 if __name__ == "__main__":
     main()

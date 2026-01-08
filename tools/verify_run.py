@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os, glob, numpy as np
 
 def latest_run_dir(base="results"):
@@ -12,6 +13,11 @@ def latest_run_dir(base="results"):
     return subs[-1] if subs else last
 
 def main():
+    ap = argparse.ArgumentParser(description="Verify hydro/GRHD output sanity checks.")
+    ap.add_argument("--max-gamma", type=float, default=None)
+    ap.add_argument("--max-vel", type=float, default=None)
+    args = ap.parse_args()
+
     run_dir = latest_run_dir()
     # Pick rank0 latest file
     files = sorted(glob.glob(os.path.join(run_dir, "jet3d_rank0000_step*.npz")))
@@ -29,15 +35,18 @@ def main():
     v2 = np.clip(v2, 0, 1 - 1e-14)
     G  = 1.0/np.sqrt(1.0 - v2)
 
-    print(f"[verify] interior max |vx| = {np.max(np.abs(vx[sl])):.6e}")
-    print(f"[verify] interior max  Γ   = {np.max(G):.6f}")
+    max_v = np.max(np.abs(vx[sl]))
+    print(f"[verify] interior max |vx| = {max_v:.6e}")
+    max_g = np.max(G)
+    print(f"[verify] interior max  Γ   = {max_g:.6f}")
     print(f"[verify] interior mean ρ, p = {np.mean(rho[sl]):.6e}, {np.mean(p[sl]):.6e}")
 
     # First interior inlet plane (i = NG)
     i = NG
     v2_face = vx[i,:,:]**2 + vy[i,:,:]**2 + vz[i,:,:]**2
     G_face  = 1.0/np.sqrt(1.0 - np.clip(v2_face, 0, 1 - 1e-14))
-    print(f"[verify] inlet plane max Γ (i=NG) = {np.max(G_face):.6f}")
+    max_g_face = np.max(G_face)
+    print(f"[verify] inlet plane max Γ (i=NG) = {max_g_face:.6f}")
 
     # Recompute inlet energy flux by summation over the *inlet plane* cells
     # Sx = (from prim_to_cons): w*W^2*vx with w = rho * (1 + gamma/(gamma-1) * p/rho)
@@ -54,6 +63,11 @@ def main():
         dy = 1.0/ny; dz = 1.0/nz
     inlet_flux = np.sum(Sx[NG:-NG, NG:-NG]) * dy * dz
     print(f"[verify] recomputed inlet flux = {inlet_flux:.6e}")
+
+    if args.max_gamma is not None and max_g > args.max_gamma:
+        raise SystemExit(f"max Gamma {max_g:.3f} > {args.max_gamma}")
+    if args.max_vel is not None and max_v > args.max_vel:
+        raise SystemExit(f"max |vx| {max_v:.3e} > {args.max_vel}")
 
 if __name__ == "__main__":
     main()

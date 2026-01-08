@@ -275,7 +275,9 @@ def latest_run_dir(base="results"):
     runs = sorted([d for d in glob.glob(os.path.join(base, "*")) if os.path.isdir(d)])
     if not runs:
         return None
-    return runs[-1]
+    last = runs[-1]
+    subs = sorted([d for d in glob.glob(os.path.join(last, "*")) if os.path.isdir(d)])
+    return subs[-1] if subs else last
 
 def latest_checkpoint_in_dir(run_dir, rank):
     pat = os.path.join(run_dir, f"checkpoint_rank{rank:04d}_step*.npz")

@@ -34,7 +34,7 @@ def main():
         if proc.returncode != 0:
             raise SystemExit(proc.returncode)
 
-    cmd = [args.python, "tools/verify_rmhd.py"]
+    cmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "200.0", "--max-psi", "1e-2"]
     print(f"[hlld] {' '.join(cmd)}", flush=True)
     proc = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr)
     if proc.returncode != 0:

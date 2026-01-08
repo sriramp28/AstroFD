@@ -27,7 +27,7 @@ def main():
             failed.append(name)
             continue
         if name == "grmhd_ks":
-            vcmd = [args.python, "tools/verify_rmhd.py"]
+            vcmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "200.0", "--max-psi", "1e-2"]
             print(f"[gr-validate] verify: {' '.join(vcmd)}", flush=True)
             vproc = subprocess.run(vcmd, stdout=sys.stdout, stderr=sys.stderr)
             if vproc.returncode != 0:
