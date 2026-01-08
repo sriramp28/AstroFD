@@ -13,74 +13,150 @@
 \maketitle
 
 \begin{abstract}
-AstroFD is a finite-volume solver for relativistic hydrodynamics and magnetohydrodynamics,
-with optional fixed-background GR, jet nozzle injection, and SN-lite physics. This document
-summarizes the governing equations, numerical methods, and implemented capabilities.
+AstroFD is a finite-volume solver for relativistic hydrodynamics and
+magnetohydrodynamics in flat spacetime and on fixed curved backgrounds.
+The code targets relativistic jet simulations and SN-lite core-collapse
+scenarios with configurable nozzle injection, GLM divergence cleaning,
+causal dissipation, two-temperature relaxation, non-ideal MHD extensions,
+H/He non-equilibrium chemistry, and parametric neutrino heating. This
+report documents the governing equations, numerical methods, physical
+modules, diagnostics, and validation tests.
 \end{abstract}
+
+\section{Introduction}
+Relativistic jets and core-collapse flows exhibit strong shocks, large
+Lorentz factors, magnetic stresses, and stiff source terms. AstroFD is
+built as a modular research code for controlled studies of these regimes.
+It combines robust conservative discretizations with optional high-order
+reconstruction and flexible physics modules.
+
+\section{Code Architecture}
+The solver is organized around a conservative update in Cartesian
+coordinates. Physics options are selected by configuration and include
+SRHD/RMHD in flat spacetime and GRHD/GRMHD in fixed metrics. Source terms
+for dissipation, chemistry, and SN-lite physics are applied in operator
+split steps with optional IMEX subcycling for stiff terms. Outputs are
+organized by timestamp and include diagnostics and snapshot fields.
 
 \section{Governing Equations}
 \subsection{Special Relativistic Hydrodynamics}
-We evolve conservative variables $U = (D, S_i, \tau)$ derived from primitives
-$(\rho, v_i, p)$ with an ideal-gas EOS. The fluxes use standard SRHD forms
-\cite{marti1999, mignone2007}.
+We evolve conservative variables $U = (D, S_i, \tau)$ derived from
+primitive variables $(\rho, v_i, p)$ with an ideal-gas EOS
+$ p = (\gamma - 1) \rho e$. The conservative variables are
+\begin{align}
+D &= \rho W, \\
+S_i &= \rho h W^2 v_i, \\
+\tau &= \rho h W^2 - p - D,
+\end{align}
+with specific enthalpy $h = 1 + e + p/\rho$ and Lorentz factor
+$W = (1 - v^2)^{-1/2}$. Fluxes follow standard SRHD expressions
+\cite{marti1999}.
 
 \subsection{Special Relativistic MHD}
-RMHD extends SRHD with magnetic fields $\mathbf{B}$ and GLM divergence cleaning
-\cite{dedner2002, mignone2010}. We include a GLM scalar $\psi$ with hyperbolic
-cleaning speed $c_h$ and damping $c_p$.
+RMHD extends SRHD with magnetic fields $\mathbf{B}$ and a GLM scalar
+$\psi$ to control $\nabla \cdot \mathbf{B}$ \cite{dedner2002}. We adopt
+an ideal RMHD formulation with magnetic pressure and tension, and a GLM
+system of the form
+\begin{align}
+\partial_t \mathbf{B} + \nabla \times \mathbf{E} + \nabla \psi &= 0, \\
+\partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi,
+\end{align}
+with hyperbolic cleaning speed $c_h$ and damping $c_p$. The GLM terms are
+added to the conservative update and damped through source terms.
 
 \subsection{GRHD/GRMHD on Fixed Backgrounds}
-We implement the Valencia formulation on fixed metrics (Minkowski, Schwarzschild,
-Kerr-Schild) with optional orthonormal-frame flux evaluation
-\cite{font2008, gammie2003}.
+We implement the Valencia formulation of GRHD/GRMHD on analytic metrics
+(Minkowski, Schwarzschild, Kerr-Schild) with optional orthonormal-frame
+flux evaluation for improved stability near strong curvature
+\cite{banyuls1997, font2008, gammie2003}. Metric source terms are computed
+from the chosen background and included in the conservative update.
 
 \subsection{Causal Dissipation}
-Israel--Stewart-type causal dissipation evolves bulk, shear, and heat flux variables
-with relaxation-time IMEX updates \cite{israel1979, rezolla2013}.
+Israel--Stewart-type causal dissipation evolves bulk, shear, and heat
+flux variables with relaxation times and source terms
+\cite{israel1979, rezolla2013}. Stiff relaxation is integrated with
+subcycled IMEX steps to maintain stability.
+
+\subsection{Two-Temperature Relaxation}
+A two-temperature model evolves electron and ion internal energies with
+relaxation time $\tau_{ei}$. The coupling is parametrized by the user and
+can be enabled or disabled at runtime.
+
+\subsection{H/He Non-Equilibrium Chemistry}
+A simplified H/He network tracks ion fractions with source terms for
+ionization and recombination. Cooling and heating are applied
+consistently with the ion state. Species are stored as passive scalars
+advected with the flow.
+
+\subsection{Passive Tracers}
+Passive tracers are advected as additional conserved scalars, initialized
+with configurable nozzle and ambient values. These tracers enable mixing
+and entrainment diagnostics without affecting the dynamics.
+
+\subsection{Resistive and Non-Ideal MHD}
+Resistive RMHD adds Ohmic diffusion with resistivity $\eta$. Optional
+Hall, ambipolar, and hyper-resistive terms are included as explicit
+corrections for controlled experiments.
 
 \subsection{SN-lite Source Terms}
-SN-lite physics includes Newtonian gravity, gain-region heating/cooling, and an optional
-lightbulb neutrino heating/cooling source term. These are parametric models intended for
-controlled experiments rather than full radiation-hydrodynamic transport.
+SN-lite physics includes Newtonian gravity (point-mass or monopole),
+parametric gain-region heating/cooling, and a lightbulb neutrino source
+term for approximate energy deposition \cite{janka2001}. These are
+intended for controlled tests rather than full radiation transport.
 
 \section{Numerical Methods}
-\subsection{Discretization}
-Finite-volume conservative updates with ghost zones on Cartesian grids.
-Reconstruction options include MUSCL, PPM, and WENO5. Slope limiters include
-MC, minmod, and van Leer \cite{toro1999}.
+\subsection{Finite-Volume Discretization}
+We update cell-averaged conserved variables on a Cartesian mesh with
+ghost zones. Fluxes are computed at faces from reconstructed states and
+a Riemann solver. Source terms are applied in split fashion.
+
+\subsection{Reconstruction}
+Available reconstructions include MUSCL (with MC, minmod, or van Leer
+limiters), PPM \cite{colella1984}, and WENO5 \cite{jiang1996}. The choice
+is set at runtime via configuration.
 
 \subsection{Riemann Solvers}
-HLLE provides a robust baseline. HLLC is available for hydro, and HLLD for RMHD
-\cite{toro1999, miyoshi2005}.
+HLLE provides a robust baseline. HLLC is available for hydro, and HLLD
+and full HLLD for RMHD \cite{toro1999, miyoshi2005}. The full HLLD solver
+captures additional wave structure compared to reduced variants.
 
 \subsection{Time Integration}
-SSPRK2 and SSPRK3 are supported. Dissipation source terms use subcycled IMEX updates
-with adaptive subcycling to handle stiff relaxation.
+SSPRK2 and SSPRK3 are supported \cite{gottlieb2001}. Causal dissipation
+and stiff source terms use subcycled IMEX updates for stability.
 
-\section{Boundary and Injection}
-Jet nozzle inflow is imposed at the left x-boundary with top-hat, taper, or parabolic
-profiles and optional perturbations. Magnetic fields at the nozzle can be poloidal
-or toroidal.
+\subsection{Floors, Caps, and Recovery}
+Density and pressure floors and velocity caps protect against unphysical
+states. RMHD primitive recovery includes fallback paths for robustness.
 
-\section{Diagnostics and Validation}
-Diagnostics include maximum Lorentz factor, inlet energy flux, divB statistics,
-SN shock radius, gain mass, cocoon pressure, and mixing layer thickness. Validation
-suites are included for schemes, GR metrics, restart, and SN-lite scenarios.
+\section{Boundary Conditions and Injection}
+Jet inflow is imposed at the x-min boundary with configurable nozzle
+profiles (top-hat, taper, parabolic) and optional perturbations to seed
+instabilities. The nozzle includes a shear layer of configurable
+thickness and optional magnetic fields (poloidal or toroidal) at the
+inlet.
 
-\section{Capabilities Summary}
-\begin{itemize}
-  \item SRHD, RMHD, GRHD, GRMHD solvers with GLM divergence cleaning.
-  \item Causal dissipation, two-temperature relaxation, resistive and non-ideal MHD.
-  \item H/He nonequilibrium ion chemistry.
-  \item SN-lite gravity, heating/cooling, and lightbulb neutrino source terms.
-  \item PPM and WENO5 reconstruction; SSPRK3 time integration.
-  \item HLLC (hydro) and HLLD (RMHD) solvers.
-\end{itemize}
+\section{Diagnostics}
+Diagnostics include maximum Lorentz factor, inlet energy and momentum
+fluxes, centerline profiles, divB statistics, SN shock radius and gain
+mass, cocoon pressure, mixing layer thickness, and optional performance
+counters. Diagnostics are written as CSV files in each run directory.
+
+\section{Validation}
+Validation suites cover reconstruction and limiter behavior, Riemann
+solver checks, GR Kerr-Schild runs, orthonormal flux evaluation, restart
+regression, and SN-lite tests (freefall, Sedov, stalled shock, and
+lightbulb heating). These tests are automated in \texttt{tools/}.
+
+\section{Configuration and Reproducibility}
+All physics and numerics options are set through JSON configuration
+files. Outputs are organized by timestamp under \texttt{results/}. The
+code records diagnostics in CSV for post-processing and comparison.
 
 \section{Limitations and Future Work}
-Current limitations include static nested refinement (single rank), solver-side GPU
-acceleration, and incomplete validation suites for high-order accuracy and GRMHD
-benchmarks.
+Current limitations include static nested refinement (single rank),
+limited GRMHD benchmark coverage, and incomplete GPU acceleration for
+solver kernels. Planned improvements include expanded EOS options,
+quantitative convergence tests, and additional validation problems.
 
 \bibliographystyle{unsrt}
 \bibliography{astrofd_refs}

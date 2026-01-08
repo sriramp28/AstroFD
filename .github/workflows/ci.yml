@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validation-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mpich libmpich-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run validation suite (quick)
+        run: |
+          python tools/run_validation_suite.py --quick
+
+  docs-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-latex-base texlive-latex-extra texlive-bibtex-extra
+
+      - name: Build PDF
+        run: |
+          cd docs
+          pdflatex astrofd.tex
+          bibtex astrofd
+          pdflatex astrofd.tex
+          pdflatex astrofd.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrofd-pdf
+          path: docs/astrofd.pdf

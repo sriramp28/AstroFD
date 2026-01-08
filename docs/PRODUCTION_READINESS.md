@@ -1,36 +1,46 @@
 # AstroFD Production Readiness Checklist
 
-This checklist summarizes remaining work to move from research code to production-grade.
+This checklist summarizes remaining work to move from research code to
+production-grade. Items are grouped by priority.
 
 ## Validation and Verification
 
-- Add standard SRHD/RMHD shock tube suite (1D/2D) with error norms.
-- Add RMHD Orszag-Tang vortex and rotor tests.
-- Add Alfvén and fast/slow magnetosonic wave convergence tests.
-- Add GRMHD benchmark (e.g., magnetized Bondi or Fishbone-Moncrief torus).
-- Establish quantitative thresholds for key diagnostics (divB, shock radius trends).
+- Standard SRHD/RMHD shock tube suite (1D/2D) with error norms.
+- RMHD Orszag-Tang vortex and rotor tests.
+- Alfvén and fast/slow magnetosonic convergence tests.
+- GRMHD benchmarks (magnetized Bondi, Fishbone-Moncrief torus).
+- Quantitative thresholds for divB, shock radius, and Lorentz factor.
+- Regression baselines for PPM/WENO + RK3 combinations.
+
+## Physical Fidelity
+
+- Expanded EOS options (tabulated gamma profiles, relativistic Synge).
+- Improved RMHD primitive recovery for extreme magnetization.
+- Extended chemistry and cooling networks for SN-lite.
+- Optional non-equilibrium radiation transport (beyond lightbulb).
 
 ## Performance and Scaling
 
-- Profile hotspots and memory usage for large grids.
-- Improve strong/weak scaling on multi-node MPI.
-- Optional threading in compute kernels (beyond Numba JIT).
-- GPU solver backends (not just post-processing).
+- Profile hotspots for large grids.
+- Improve strong/weak scaling for multi-node MPI.
+- Optional shared-memory parallelism within ranks.
+- Solver-side GPU backend (not only post-processing).
 
-## Reproducibility and Robustness
+## Robustness and Reproducibility
 
-- Fixed seeds and deterministic nozzle perturbations.
+- Deterministic inlet perturbations and fixed seeds.
 - Stronger restart coverage and versioned checkpoint metadata.
-- Parameter validation and auto-generated config reports.
+- Parameter validation with schema checks.
 - Unit tests for EOS, reconstruction, and primitive recovery.
 
 ## Engineering
 
-- CI pipeline (lint + unit + smoke + validation).
+- CI pipelines (lint + smoke + validation + docs build).
 - Structured logging and metadata outputs.
-- Release tagging and versioning.
+- Release tagging and semantic versioning.
 
 ## Documentation
 
-- Full user guide and tutorial walkthroughs.
-- Expanded LaTeX technical report with test results.
+- Expanded user guide with step-by-step tutorials.
+- Detailed LaTeX writeup with method derivations and test results.
+- Example notebooks or scripts for analysis workflows.
