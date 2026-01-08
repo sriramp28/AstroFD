@@ -381,6 +381,7 @@ def apply_sources(pr, dt, dx, dy, dz, offs_x, ng, t, step, menc, r_edges, comm):
             menc, r_edges = compute_monopole_mass(pr, dx, dy, dz, offs_x, ng, settings, comm)
     pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs_x, ng, menc, r_edges)
     pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs_x, ng, t)
+    pr = source_terms.apply_neutrino_transport(pr, dt, dx, dy, dz, settings, offs_x, ng, t)
     pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, ng)
     pr = source_terms.apply_radiation_coupling(pr, dt, settings)
     pr = source_terms.apply_kinetic_effects(pr, dt, dx, dy, dz, settings, ng)

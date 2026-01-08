@@ -22,6 +22,7 @@ This file tracks the current plan and completion status so work can resume easil
    - Cocoon pressure + mixing diagnostics (done)
    - Shell flux budgets (done)
 5. Neutrino transport (deferred)
+   - Lightbulb neutrino heating/cooling (done)
 
 ## Completed highlights
 

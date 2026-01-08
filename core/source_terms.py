@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # core/source_terms.py
 # Simple source terms: cooling/heating and two-temperature relaxation.
+import math
 
 def apply_cooling_heating(pr, dt, cfg):
     if not cfg.get("COOLING_ENABLED", False):
@@ -129,6 +130,90 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng, t):
                     if p > pmax:
                         p = pmax
                     pr[4, i, j, k] = p
+
+    return pr
+
+
+def apply_neutrino_transport(pr, dt, dx, dy, dz, cfg, offs_x, ng, t):
+    """
+    Simple neutrino lightbulb heating/cooling for SN-lite.
+    Updates pressure as a proxy for internal energy.
+    """
+    if not cfg.get("NEUTRINO_ENABLED", False):
+        return pr
+    if cfg.get("PHYSICS") not in ("sn",):
+        return pr
+
+    model = str(cfg.get("NEUTRINO_MODEL", "lightbulb")).lower()
+    if model != "lightbulb":
+        return pr
+
+    lum = float(cfg.get("NEUTRINO_LUM", 0.0))
+    eps = float(cfg.get("NEUTRINO_EPS", 1.0))
+    kappa = float(cfg.get("NEUTRINO_KAPPA", 0.0))
+    abs_coeff = float(cfg.get("NEUTRINO_ABS_COEFF", 0.0))
+    cool_coeff = float(cfg.get("NEUTRINO_COOL_COEFF", 0.0))
+    cool_texp = float(cfg.get("NEUTRINO_COOL_TEXP", 6.0))
+    r0 = float(cfg.get("NEUTRINO_R0", 0.0))
+    r1 = float(cfg.get("NEUTRINO_R1", 0.0))
+    tau_floor = float(cfg.get("NEUTRINO_TAU_FLOOR", 0.0))
+    tau = float(cfg.get("NEUTRINO_TIME_TAU", 0.0))
+    t0 = float(cfg.get("NEUTRINO_TIME_T0", 0.0))
+    gamma = float(cfg.get("GAMMA", 5.0/3.0))
+    pmax = float(cfg.get("P_MAX", 1.0))
+    center = cfg.get("SN_GRAVITY_CENTER", [0.5*cfg.get("Lx", 1.0),
+                                           0.5*cfg.get("Ly", 1.0),
+                                           0.5*cfg.get("Lz", 1.0)])
+    x0, y0, z0 = float(center[0]), float(center[1]), float(center[2])
+
+    if lum == 0.0 and cool_coeff == 0.0:
+        return pr
+
+    nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    for i in range(ng, nx - ng):
+        x = (offs_x + (i - ng) + 0.5) * dx
+        for j in range(ng, ny - ng):
+            y = (j - ng + 0.5) * dy
+            for k in range(ng, nz - ng):
+                z = (k - ng + 0.5) * dz
+                rx = x - x0
+                ry = y - y0
+                rz = z - z0
+                r = (rx*rx + ry*ry + rz*rz) ** 0.5
+                if r <= 0.0:
+                    continue
+
+                rho = pr[0, i, j, k]
+                if rho <= 0.0:
+                    continue
+                p_local = pr[4, i, j, k]
+                tgas = p_local / max(rho, 1e-12)
+
+                weight = 1.0
+                if r1 > 0.0:
+                    xi = (r - r0) / r1
+                    weight = 1.0 / (1.0 + xi*xi)
+
+                tau_eff = max(tau_floor, kappa * rho * r)
+                atten = math.exp(-tau_eff)
+
+                flux = lum / (4.0 * math.pi * r * r)
+                heat = abs_coeff * flux * eps * atten * weight
+                cool = cool_coeff * (max(tgas, 1e-12) ** cool_texp) * rho
+
+                scale = 1.0
+                if tau > 0.0:
+                    tnorm = (t - t0) / max(tau, 1e-12)
+                    if tnorm > 0.0:
+                        scale *= math.exp(-tnorm)
+
+                dp = (gamma - 1.0) * (heat - cool) * scale * dt
+                p = p_local + dp
+                if p < 1e-12:
+                    p = 1e-12
+                if p > pmax:
+                    p = pmax
+                pr[4, i, j, k] = p
 
     return pr
 
