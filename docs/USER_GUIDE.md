@@ -237,6 +237,31 @@ Targeted suites:
 - `python tools/validate_restart.py`
 - `python tools/run_sn_tests.py`
 
+## Documentation and Paper Assets
+
+Generate paper-ready figures and diagnostics tables from the latest run:
+
+```bash
+python tools/make_doc_figures.py
+```
+
+To use a specific run directory:
+
+```bash
+python tools/make_doc_figures.py --run-dir results/2026-01-08
+```
+
+Outputs are written to `docs/figures/` and are referenced by
+`docs/astrofd.tex`. Rebuild the PDF with:
+
+```bash
+cd docs
+pdflatex astrofd.tex
+bibtex astrofd
+pdflatex astrofd.tex
+pdflatex astrofd.tex
+```
+
 ## Troubleshooting
 
 - MPI warnings about socket binding can appear in sandboxed or restricted
