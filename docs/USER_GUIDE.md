@@ -53,6 +53,79 @@ MPI usage (2 ranks):
 mpiexec -n 2 python solvers/srhd3d_mpi_muscl.py --config config/config_rmhd.json
 ```
 
+## Tutorials
+
+These walkthroughs use small grids for quick validation runs and point to
+the relevant output files. Scale up later by increasing `NX/NY/NZ` and
+adjusting the end time.
+
+### Tutorial A: SRHD Jet Smoke Test
+
+1) Run a small SRHD jet:
+
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config.json
+```
+
+2) Inspect outputs in the latest `results/YYYY-MM-DD/` directory:
+   - `diagnostics.csv` for max Lorentz factor and inlet flux
+   - `centerline.csv` for axial profiles
+
+3) Quicklook slice plot:
+
+```bash
+python tools/quickview.py --field rho
+```
+
+### Tutorial B: RMHD Jet with GLM
+
+1) Run RMHD with GLM and a poloidal field:
+
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config_rmhd.json
+```
+
+2) Check `divb.csv` and confirm divB remains small relative to mean B.
+
+3) Optional mixing diagnostics (if tracers enabled):
+
+```bash
+python tools/mixing_layer.py --tracer-index 0
+python tools/cocoon_pressure.py --tracer-index 0
+```
+
+### Tutorial C: GRHD Kerr-Schild
+
+1) Run GRHD on a fixed Kerr-Schild metric:
+
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config_grhd_ks.json
+```
+
+2) Review `diagnostics.csv` and ensure stability with the chosen CFL.
+
+### Tutorial D: SN-lite Stalled Shock
+
+1) Run the stalled-shock configuration:
+
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config_sn_stalled_shock.json
+```
+
+2) Review SN diagnostics:
+   - `sn_diagnostics.csv` for shock radius and gain mass
+   - `diagnostics.csv` for global quantities
+
+### Tutorial E: SN-lite Lightbulb Heating
+
+1) Enable the lightbulb model:
+
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config_neutrino_lightbulb.json
+```
+
+2) Compare shock radius evolution to the stalled-shock baseline.
+
 ## Configuration Structure
 
 Configurations are JSON files in `config/`. The following groups are
