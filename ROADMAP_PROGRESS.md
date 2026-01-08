@@ -38,7 +38,7 @@ This file tracks the current plan and completion status so work can resume easil
 ## Notes
 
 - Keep commit messages referencing this roadmap file when updating progress.
-- TODO: tighten diagnostics thresholds (divB, shock radius trends) once we set expected ranges.
+- Diagnostics thresholds tightened (divB rel default 100, SN eff default 5).
 - TODO: add GPU backends and stronger scaling optimizations.
 - GPU backend (post-processing tools) now supports optional CuPy acceleration.
 - TODO: improve RMHD primitive recovery robustness + diagnostics expansions (cocoon/mixing/shell fluxes).

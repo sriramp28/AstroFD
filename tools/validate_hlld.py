@@ -37,7 +37,7 @@ def main():
             raise SystemExit(proc.returncode)
 
     run_dir = latest_run_dir()
-    cmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "200.0", "--max-psi", "1e-2"]
+    cmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "100.0", "--max-psi", "1e-2"]
     if run_dir:
         cmd.extend(["--run-dir", run_dir])
     print(f"[hlld] {' '.join(cmd)}", flush=True)

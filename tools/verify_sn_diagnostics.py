@@ -30,6 +30,8 @@ def parse_last_row(path):
 def main():
     ap = argparse.ArgumentParser(description="Verify SN diagnostics outputs.")
     ap.add_argument("--run-dir", default=None)
+    ap.add_argument("--max-eff", type=float, default=5.0)
+    ap.add_argument("--min-shock-radius", type=float, default=0.0)
     args = ap.parse_args()
 
     run_dir = args.run_dir or latest_run_dir()
@@ -53,10 +55,10 @@ def main():
     heat_abs = values[4]
     eff = values[5]
 
-    if shock_r < 0.0 or gain_mass < 0.0 or heat_abs < 0.0:
+    if shock_r < args.min_shock_radius or gain_mass < 0.0 or heat_abs < 0.0:
         print(f"[sn-verify] invalid values in {diag_path}")
         return 1
-    if abs(eff) > 10.0:
+    if abs(eff) > args.max_eff:
         print(f"[sn-verify] suspicious heating efficiency: {eff}")
         return 1
 

@@ -11,8 +11,8 @@ def latest_run_dir(base="results"):
 
 def main():
     ap = argparse.ArgumentParser(description="Verify RMHD output sanity checks.")
-    ap.add_argument("--max-divb-rel", type=float, default=None)
-    ap.add_argument("--max-psi", type=float, default=None)
+    ap.add_argument("--max-divb-rel", type=float, default=100.0)
+    ap.add_argument("--max-psi", type=float, default=1e-2)
     ap.add_argument("--max-b", type=float, default=None)
     ap.add_argument("--run-dir", default=None)
     args = ap.parse_args()

@@ -35,7 +35,7 @@ def main():
         if run_dir:
             run_dirs[name] = run_dir
         if "grmhd" in name:
-            vcmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "200.0", "--max-psi", "1e-2"]
+            vcmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "100.0", "--max-psi", "1e-2"]
         else:
             vcmd = [args.python, "tools/verify_run.py"]
         if run_dir:
