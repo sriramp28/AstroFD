@@ -31,103 +31,228 @@ built as a modular research code for controlled studies of these regimes.
 It combines robust conservative discretizations with optional high-order
 reconstruction and flexible physics modules.
 
-\section{Code Architecture}
-The solver is organized around a conservative update in Cartesian
-coordinates. Physics options are selected by configuration and include
-SRHD/RMHD in flat spacetime and GRHD/GRMHD in fixed metrics. Source terms
-for dissipation, chemistry, and SN-lite physics are applied in operator
-split steps with optional IMEX subcycling for stiff terms. Outputs are
-organized by timestamp and include diagnostics and snapshot fields.
+\section{Physical Background and Literature}
+Relativistic jet modeling is rooted in SRHD and RMHD formulations that
+capture ultrarelativistic flows, shock propagation, and magnetic stress
+transport \cite{marti1999, anile1989, komissarov1999}. The standard
+formulation for GRHD/GRMHD uses the Valencia 3+1 split
+\cite{banyuls1997, font2008} and has been validated in astrophysical
+codes such as HARM \cite{gammie2003} and ECHO \cite{delzanna2007}.
+
+For ideal MHD, divergence control is required to maintain
+$\nabla \cdot \mathbf{B} = 0$; GLM cleaning provides a robust approach
+\cite{dedner2002, mignone2010}. High-order reconstruction methods such as
+PPM and WENO improve accuracy in smooth regions while retaining stability
+at discontinuities \cite{colella1984, jiang1996}. Time integration with
+SSPRK schemes provides strong-stability-preserving updates for
+hyperbolic systems \cite{gottlieb2001}.
+
+SN-lite physics follows parametric heating and cooling models commonly
+used in core-collapse studies \cite{janka2001, janka2012}. Causal
+relativistic dissipation adopts Israel-Stewart formulations
+\cite{israel1979, rezolla2013}. Resistive and non-ideal MHD terms provide
+controlled explorations of reconnection and drift physics
+\cite{palenzuela2009}.
+
+\section{Notation and Variables}
+We use units with $c = 1$ and metric signature $(-,+,+,+)$. Greek indices
+represent spacetime components and Latin indices represent spatial
+components. The 4-velocity is $u^\mu$, Lorentz factor is
+$W = (1 - v^2)^{-1/2}$, and the specific enthalpy is
+$h = 1 + e + p/\rho$. The ideal-gas EOS is $p = (\gamma - 1) \rho e$.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{l l}
+\hline
+Symbol & Meaning \\
+\hline
+$\rho$ & rest-mass density \\
+$e$ & specific internal energy \\
+$p$ & thermal pressure \\
+$u^\mu$ & 4-velocity \\
+$v^i$ & 3-velocity \\
+$W$ & Lorentz factor \\
+$h$ & specific enthalpy \\
+$T^{\mu\nu}$ & stress-energy tensor \\
+$B^i$ & magnetic field \\
+$b^\mu$ & magnetic 4-vector \\
+$\alpha$ & lapse \\
+$\beta^i$ & shift \\
+$\gamma_{ij}$ & spatial metric \\
+$\gamma$ & determinant of $\gamma_{ij}$ \\
+$\psi$ & GLM cleaning scalar \\
+\hline
+\end{tabular}
+\caption{Notation used in the governing equations.}
+\label{tab:notation}
+\end{table}
 
 \section{Governing Equations}
-\subsection{Special Relativistic Hydrodynamics}
-We evolve conservative variables $U = (D, S_i, \tau)$ derived from
-primitive variables $(\rho, v_i, p)$ with an ideal-gas EOS
-$ p = (\gamma - 1) \rho e$. The conservative variables are
+\subsection{SRHD: Conservation Laws}
+The covariant SRHD equations are
+\begin{align}
+\nabla_\mu (\rho u^\mu) &= 0, \\
+\nabla_\mu T^{\mu\nu} &= 0,
+\end{align}
+with stress-energy tensor
+\begin{equation}
+T^{\mu\nu} = \rho h u^\mu u^\nu + p g^{\mu\nu}.
+\end{equation}
+In 3+1 form, the conserved variables are
 \begin{align}
 D &= \rho W, \\
 S_i &= \rho h W^2 v_i, \\
 \tau &= \rho h W^2 - p - D,
 \end{align}
-with specific enthalpy $h = 1 + e + p/\rho$ and Lorentz factor
-$W = (1 - v^2)^{-1/2}$. Fluxes follow standard SRHD expressions
-\cite{marti1999}.
+and the evolution equation is
+\begin{equation}
+\partial_t U + \partial_i F^i(U) = S(U),
+\end{equation}
+where $U = (D, S_i, \tau)$, $F^i$ are the conservative fluxes, and $S$
+contains geometric and physical source terms (zero in flat SRHD).
 
-\subsection{Special Relativistic MHD}
-RMHD extends SRHD with magnetic fields $\mathbf{B}$ and a GLM scalar
-$\psi$ to control $\nabla \cdot \mathbf{B}$ \cite{dedner2002}. We adopt
-an ideal RMHD formulation with magnetic pressure and tension, and a GLM
-system of the form
+\subsection{RMHD: Ideal MHD and GLM Cleaning}
+Ideal RMHD adds Maxwell equations and the ideal constraint
+$F^{\mu\nu} u_\nu = 0$, with
+\begin{align}
+\nabla_\mu {^*F}^{\mu\nu} &= 0, \\
+\nabla_\mu F^{\mu\nu} &= J^\nu.
+\end{align}
+The stress-energy tensor becomes
+\begin{equation}
+T^{\mu\nu} = (\rho h + b^2) u^\mu u^\nu + \left(p + \frac{b^2}{2}\right) g^{\mu\nu} - b^\mu b^\nu,
+\end{equation}
+where $b^\mu$ is the magnetic 4-vector and $b^2 = b^\mu b_\mu$.
+The conservative variables include $B^i$ and the GLM scalar $\psi$.
+GLM cleaning uses
 \begin{align}
 \partial_t \mathbf{B} + \nabla \times \mathbf{E} + \nabla \psi &= 0, \\
 \partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi,
 \end{align}
-with hyperbolic cleaning speed $c_h$ and damping $c_p$. The GLM terms are
-added to the conservative update and damped through source terms.
+with hyperbolic cleaning speed $c_h$ and damping $c_p$.
 
-\subsection{GRHD/GRMHD on Fixed Backgrounds}
-We implement the Valencia formulation of GRHD/GRMHD on analytic metrics
-(Minkowski, Schwarzschild, Kerr-Schild) with optional orthonormal-frame
-flux evaluation for improved stability near strong curvature
-\cite{banyuls1997, font2008, gammie2003}. Metric source terms are computed
-from the chosen background and included in the conservative update.
+\subsection{GRHD/GRMHD: Valencia Form}
+For fixed backgrounds, we use the 3+1 split with lapse $\alpha$, shift
+$\beta^i$, and spatial metric $\gamma_{ij}$. The conservative update is
+\begin{equation}
+\partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
+\end{equation}
+where $U$ and $F^i$ include the GR corrections and $S$ collects metric
+source terms. The GRMHD stress-energy tensor uses the RMHD form, with
+metric contractions performed using $g_{\mu\nu}$.
 
 \subsection{Causal Dissipation}
-Israel--Stewart-type causal dissipation evolves bulk, shear, and heat
-flux variables with relaxation times and source terms
-\cite{israel1979, rezolla2013}. Stiff relaxation is integrated with
-subcycled IMEX steps to maintain stability.
+We evolve bulk pressure $\Pi$, shear stress $\pi^{\mu\nu}$, and heat flux
+$q^\mu$ with Israel--Stewart-type relaxation
+\cite{israel1979, rezolla2013}:
+\begin{align}
+\tau_\Pi u^\alpha \nabla_\alpha \Pi + \Pi &= -\zeta \nabla_\alpha u^\alpha, \\
+\tau_\pi u^\alpha \nabla_\alpha \pi^{\mu\nu} + \pi^{\mu\nu} &= 2 \eta \sigma^{\mu\nu}, \\
+\tau_q u^\alpha \nabla_\alpha q^\mu + q^\mu &= -\kappa T \Delta^{\mu\nu} \nabla_\nu T,
+\end{align}
+where $\Delta^{\mu\nu} = g^{\mu\nu} + u^\mu u^\nu$ and
+$\sigma^{\mu\nu}$ is the shear tensor.
 
 \subsection{Two-Temperature Relaxation}
-A two-temperature model evolves electron and ion internal energies with
-relaxation time $\tau_{ei}$. The coupling is parametrized by the user and
-can be enabled or disabled at runtime.
+Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
+\begin{align}
+\partial_t (\rho e_e) + \nabla \cdot (\rho e_e \mathbf{v}) &= \rho \frac{e_i - e_e}{\tau_{ei}}, \\
+\partial_t (\rho e_i) + \nabla \cdot (\rho e_i \mathbf{v}) &= \rho \frac{e_e - e_i}{\tau_{ei}}.
+\end{align}
 
 \subsection{H/He Non-Equilibrium Chemistry}
-A simplified H/He network tracks ion fractions with source terms for
-ionization and recombination. Cooling and heating are applied
-consistently with the ion state. Species are stored as passive scalars
-advected with the flow.
+Species mass fractions $X_s$ satisfy
+\begin{equation}
+\partial_t (\rho X_s) + \nabla \cdot (\rho X_s \mathbf{v}) = \rho \dot{X}_s,
+\end{equation}
+with source terms $\dot{X}_s$ determined by ionization and recombination
+rates \cite{anninos1997}.
 
 \subsection{Passive Tracers}
-Passive tracers are advected as additional conserved scalars, initialized
-with configurable nozzle and ambient values. These tracers enable mixing
-and entrainment diagnostics without affecting the dynamics.
+Passive tracers $C_k$ obey
+\begin{equation}
+\partial_t (\rho C_k) + \nabla \cdot (\rho C_k \mathbf{v}) = 0,
+\end{equation}
+with inlet and ambient values set by configuration.
 
 \subsection{Resistive and Non-Ideal MHD}
-Resistive RMHD adds Ohmic diffusion with resistivity $\eta$. Optional
-Hall, ambipolar, and hyper-resistive terms are included as explicit
-corrections for controlled experiments.
+Resistive MHD uses Ohm's law
+\begin{equation}
+\mathbf{E} + \mathbf{v} \times \mathbf{B} = \eta \mathbf{J},
+\end{equation}
+with $\mathbf{J} = \nabla \times \mathbf{B}$. Optional non-ideal terms
+include Hall and ambipolar contributions for controlled experiments
+\cite{palenzuela2009}.
 
 \subsection{SN-lite Source Terms}
-SN-lite physics includes Newtonian gravity (point-mass or monopole),
-parametric gain-region heating/cooling, and a lightbulb neutrino source
-term for approximate energy deposition \cite{janka2001}. These are
-intended for controlled tests rather than full radiation transport.
+SN-lite physics applies Newtonian gravity and parametric heating/cooling.
+The momentum source is $\rho \mathbf{g}$ with $\mathbf{g} = -\nabla \Phi$,
+and the energy source uses a net heating rate
+\begin{equation}
+\dot{e} = Q^+(r, \rho, T) - Q^-(r, \rho, T),
+\end{equation}
+including optional lightbulb neutrino deposition \cite{janka2001}.
 
 \section{Numerical Methods}
 \subsection{Finite-Volume Discretization}
 We update cell-averaged conserved variables on a Cartesian mesh with
-ghost zones. Fluxes are computed at faces from reconstructed states and
-a Riemann solver. Source terms are applied in split fashion.
+ghost zones. The semi-discrete update is
+\begin{equation}
+\frac{d U_{i,j,k}}{dt} = -\frac{F^x_{i+1/2,j,k} - F^x_{i-1/2,j,k}}{\Delta x}
+-\frac{F^y_{i,j+1/2,k} - F^y_{i,j-1/2,k}}{\Delta y}
+-\frac{F^z_{i,j,k+1/2} - F^z_{i,j,k-1/2}}{\Delta z} + S_{i,j,k}.
+\end{equation}
 
 \subsection{Reconstruction}
-Available reconstructions include MUSCL (with MC, minmod, or van Leer
-limiters), PPM \cite{colella1984}, and WENO5 \cite{jiang1996}. The choice
-is set at runtime via configuration.
+Reconstruction options include MUSCL with MC/minmod/van Leer limiters,
+PPM \cite{colella1984}, and WENO5 \cite{jiang1996}. Primitive variables
+are reconstructed to cell faces before Riemann solves.
 
 \subsection{Riemann Solvers}
-HLLE provides a robust baseline. HLLC is available for hydro, and HLLD
-and full HLLD for RMHD \cite{toro1999, miyoshi2005}. The full HLLD solver
-captures additional wave structure compared to reduced variants.
+HLLE provides a robust baseline. HLLC is used for hydro, and HLLD/full
+HLLD for RMHD \cite{toro1999, miyoshi2005}. The solver is selected at
+runtime.
 
 \subsection{Time Integration}
-SSPRK2 and SSPRK3 are supported \cite{gottlieb2001}. Causal dissipation
-and stiff source terms use subcycled IMEX updates for stability.
+We support SSPRK2 and SSPRK3 integration \cite{gottlieb2001}.
+SSPRK2 uses
+\begin{align}
+U^{(1)} &= U^n + \Delta t L(U^n), \\
+U^{n+1} &= \frac{1}{2} U^n + \frac{1}{2} \left(U^{(1)} + \Delta t L(U^{(1)})\right),
+\end{align}
+while SSPRK3 uses the standard three-stage formulation.
 
-\subsection{Floors, Caps, and Recovery}
-Density and pressure floors and velocity caps protect against unphysical
-states. RMHD primitive recovery includes fallback paths for robustness.
+\subsection{Source Term Coupling and IMEX}
+Source terms are applied with operator splitting. For stiff terms (e.g.,
+causal dissipation), we use subcycled IMEX updates of the form
+\begin{align}
+U^* &= U^n + \Delta t L(U^n), \\
+U^{n+1} &= U^* + \Delta t S(U^{n+1}),
+\end{align}
+with implicit treatment of $S$ over short substeps.
+
+\subsection{Primitive Recovery}
+Primitive recovery solves for $(\rho, p, v_i)$ given the conservative
+state. RMHD recovery uses iterative inversion with fallback strategies
+\cite{noble2006}.
+
+\subsection{Floors, Caps, and Stability Controls}
+Density and pressure floors enforce positivity. Velocity caps limit $v$
+close to $c$ to avoid numerical blow-up. These controls are configurable
+and can be tightened during early testing.
+
+\section{Algorithm Summary}
+A single timestep proceeds as:
+\begin{enumerate}
+  \item Apply boundary conditions and nozzle inflow.
+  \item Reconstruct primitives to faces (MUSCL/PPM/WENO).
+  \item Solve Riemann problems at faces and compute fluxes.
+  \item Update conserved variables with flux divergence.
+  \item Apply source terms (gravity, GLM damping, dissipation, chemistry).
+  \item Recover primitives and enforce floors/caps.
+  \item Write diagnostics and outputs as configured.
+\end{enumerate}
 
 \section{Boundary Conditions and Injection}
 Jet inflow is imposed at the x-min boundary with configurable nozzle
@@ -161,17 +286,17 @@ used configuration switches and suggested values for jets and SN-lite.
 \centering
 \begin{tabular}{l l l}
 \hline
-Key & Jet default & SN-lite default \\\\
+Key & Jet default & SN-lite default \\
 \hline
-PHYSICS & rmhd & sn \\\\
-RECON & ppm & muscl \\\\
-RIEMANN & hlld\_full & hlle \\\\
-RK\_ORDER & 3 & 2 \\\\
-GLM\_CH, GLM\_CP & 1.0, 0.1 & n/a \\\\
-TWO\_TEMPERATURE & true & true \\\\
-CHEMISTRY\_ENABLED & true & true \\\\
-RESISTIVE\_ENABLED & false & false \\\\
-NEUTRINO\_ENABLED & false & true \\\\
+PHYSICS & rmhd & sn \\
+RECON & ppm & muscl \\
+RIEMANN & hlld\_full & hlle \\
+RK\_ORDER & 3 & 2 \\
+GLM\_CH, GLM\_CP & 1.0, 0.1 & n/a \\
+TWO\_TEMPERATURE & true & true \\
+CHEMISTRY\_ENABLED & true & true \\
+RESISTIVE\_ENABLED & false & false \\
+NEUTRINO\_ENABLED & false & true \\
 \hline
 \end{tabular}
 \caption{Compact configuration reference for typical jet and SN-lite runs.}
