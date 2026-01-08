@@ -104,6 +104,9 @@ def load_settings():
         DISSIPATION_CAP_FRAC=0.5,
         DISSIPATION_ADVECT=True,
         DISSIPATION_SUBCYCLES=1,
+        DISSIPATION_SUBCYCLES_AUTO=True,
+        DISSIPATION_SUBCYCLES_MAX=32,
+        DISSIPATION_SUBCYCLE_FRACTION=0.5,
         # tracers
         N_TRACERS=0,
         TRACER_NAMES=None,

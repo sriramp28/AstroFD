@@ -105,6 +105,16 @@ def apply_causal_dissipation(pr, dt, dx, dy, dz, cfg):
     nsub = int(cfg.get("DISSIPATION_SUBCYCLES", 1))
     if nsub < 1:
         nsub = 1
+    if cfg.get("DISSIPATION_SUBCYCLES_AUTO", False):
+        tau_min = min(tau_bulk, tau_shear, tau_heat)
+        frac = float(cfg.get("DISSIPATION_SUBCYCLE_FRACTION", 0.5))
+        if tau_min > 0.0 and frac > 0.0:
+            target = dt / (tau_min * frac)
+            if target > 1.0:
+                nsub = max(nsub, int(target + 0.999))
+        nsub_max = int(cfg.get("DISSIPATION_SUBCYCLES_MAX", 32))
+        if nsub_max > 0 and nsub > nsub_max:
+            nsub = nsub_max
     for _ in range(nsub):
         dt_loc = dt / nsub
         for i in range(ng, nx-ng):
