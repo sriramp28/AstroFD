@@ -14,11 +14,14 @@ CASES = [
 def main():
     ap = argparse.ArgumentParser(description="Run EOS smoke tests.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--skip-gr", action="store_true", help="skip GRMHD EOS case")
     ap.add_argument("--python", default="python")
     args = ap.parse_args()
 
     failed = []
     for cfg in CASES:
+        if args.skip_gr and "grmhd" in cfg:
+            continue
         cmd = [args.python, "solvers/srhd3d_mpi_muscl.py", "--config", cfg]
         print(f"[eos-smoke] {' '.join(cmd)}", flush=True)
         if args.dry_run:

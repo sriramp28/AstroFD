@@ -14,7 +14,7 @@ This file tracks the current plan and completion status so work can resume easil
    - Performance hooks (in progress)
 4. Diagnostics/analysis
    - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
-   - Expanded validation suite (in progress)
+   - Expanded validation suite (done)
 5. Neutrino transport (deferred)
 
 ## Completed highlights
