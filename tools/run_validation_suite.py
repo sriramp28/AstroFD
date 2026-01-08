@@ -8,6 +8,7 @@ STEPS = [
     ("smoke", ["python", "tools/run_smoke_suite.py"]),
     ("schemes", ["python", "tools/validate_schemes.py"]),
     ("hlld", ["python", "tools/validate_hlld.py"]),
+    ("gr", ["python", "tools/validate_gr.py"]),
     ("sn", ["python", "tools/run_sn_tests.py"]),
     ("eos", ["python", "tools/run_eos_smoke.py"]),
     ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "200"]),
@@ -46,6 +47,8 @@ def main():
                 cmd.extend(["--skip-rmhd", "--skip-gr"])
         if name == "schemes" and args.skip_rmhd:
             cmd = [args.python, "tools/validate_schemes.py", "--skip-rmhd"]
+        if name == "gr" and args.quick:
+            continue
         if name in ("hlld", "rmhd_recovery") and args.skip_rmhd:
             continue
         if name == "eos":
@@ -54,6 +57,8 @@ def main():
                 cmd.append("--skip-gr")
             if args.quick:
                 cmd.append("--skip-gr")
+        if name == "gr" and args.skip_gr:
+            continue
         if name == "sn" and args.quick:
             cmd = [args.python, "tools/run_sn_tests.py", "--no-verify"]
         if args.skip_sn and name == "sn":
