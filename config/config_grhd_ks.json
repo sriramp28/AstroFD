@@ -34,7 +34,7 @@
   "RIEMANN": "hlle",
   "RK_ORDER": 2,
   "DEBUG": true,
-  "RESULTS_UNIQUE": false,
+  "RESULTS_UNIQUE": true,
   "CHECKPOINT_EVERY": 0,
   "RESTART_PATH": null,
   "PHYSICS": "grhd",

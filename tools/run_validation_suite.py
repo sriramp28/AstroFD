@@ -9,6 +9,7 @@ STEPS = [
     ("schemes", ["python", "tools/validate_schemes.py"]),
     ("hlld", ["python", "tools/validate_hlld.py"]),
     ("gr", ["python", "tools/validate_gr.py"]),
+    ("gr_ortho", ["python", "tools/validate_gr_orthonormal.py"]),
     ("restart", ["python", "tools/validate_restart.py"]),
     ("sn", ["python", "tools/run_sn_tests.py"]),
     ("eos", ["python", "tools/run_eos_smoke.py"]),
@@ -49,6 +50,8 @@ def main():
         if name == "schemes" and args.skip_rmhd:
             cmd = [args.python, "tools/validate_schemes.py", "--skip-rmhd"]
         if name == "gr" and args.quick:
+            continue
+        if name == "gr_ortho" and args.quick:
             continue
         if name == "restart" and args.quick:
             continue

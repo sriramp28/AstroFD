@@ -14,9 +14,10 @@ def main():
     ap.add_argument("--max-divb-rel", type=float, default=None)
     ap.add_argument("--max-psi", type=float, default=None)
     ap.add_argument("--max-b", type=float, default=None)
+    ap.add_argument("--run-dir", default=None)
     args = ap.parse_args()
 
-    run_dir = latest_run_dir()
+    run_dir = args.run_dir or latest_run_dir()
     files = sorted(glob.glob(os.path.join(run_dir, "jet3d_rank0000_step*.npz")))
     if not files: raise SystemExit(f"No NPZ files in {run_dir}")
     npz = files[-1]

@@ -91,7 +91,7 @@ def main():
         "--print-every",
         "1",
     ]
-    for label, cmd in [("restart", cmd2), ("verify", cmd3)]:
+    for label, cmd in [("restart", cmd2)]:
         print(f"[restart-validate] {label}: {' '.join(cmd)}", flush=True)
         if args.dry_run:
             continue
@@ -100,6 +100,15 @@ def main():
             raise SystemExit(proc.returncode)
 
     run_dir = latest_run_dir()
+    if run_dir:
+        cmd3.extend(["--run-dir", run_dir])
+    for label, cmd in [("verify", cmd3)]:
+        print(f"[restart-validate] {label}: {' '.join(cmd)}", flush=True)
+        if args.dry_run:
+            continue
+        proc = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr)
+        if proc.returncode != 0:
+            raise SystemExit(proc.returncode)
     if not has_checkpoint_step(run_dir, 2):
         raise SystemExit("[restart-validate] missing checkpoint at step >= 2; restart may not have advanced")
 

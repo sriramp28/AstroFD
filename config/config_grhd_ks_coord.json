@@ -37,13 +37,9 @@
   "RESULTS_UNIQUE": true,
   "CHECKPOINT_EVERY": 0,
   "RESTART_PATH": null,
-  "PHYSICS": "grmhd",
+  "PHYSICS": "grhd",
   "GR_METRIC": "kerr-schild",
   "GR_MASS": 1.0,
   "GR_SPIN": 0.5,
-  "ORTHONORMAL_FLUX": true,
-  "GLM_CH": 1.0,
-  "GLM_CP": 0.1,
-  "B_INIT": "poloidal",
-  "B0": 0.05
+  "ORTHONORMAL_FLUX": false
 }

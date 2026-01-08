@@ -16,9 +16,10 @@ def main():
     ap = argparse.ArgumentParser(description="Verify hydro/GRHD output sanity checks.")
     ap.add_argument("--max-gamma", type=float, default=None)
     ap.add_argument("--max-vel", type=float, default=None)
+    ap.add_argument("--run-dir", default=None)
     args = ap.parse_args()
 
-    run_dir = latest_run_dir()
+    run_dir = args.run_dir or latest_run_dir()
     # Pick rank0 latest file
     files = sorted(glob.glob(os.path.join(run_dir, "jet3d_rank0000_step*.npz")))
     if not files: raise SystemExit(f"No NPZ files in {run_dir}")

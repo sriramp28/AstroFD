@@ -41,7 +41,7 @@
   "GR_METRIC": "kerr-schild",
   "GR_MASS": 1.0,
   "GR_SPIN": 0.5,
-  "ORTHONORMAL_FLUX": true,
+  "ORTHONORMAL_FLUX": false,
   "GLM_CH": 1.0,
   "GLM_CP": 0.1,
   "B_INIT": "poloidal",
