@@ -8,6 +8,7 @@ CASES = [
     "config/config_sn_freefall.json",
     "config/config_sn_sedov.json",
     "config/config_sn_stalled_shock.json",
+    "config/config_neutrino_lightbulb.json",
 ]
 
 

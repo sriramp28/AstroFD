@@ -8,7 +8,12 @@ CASES = [
     ("hydro_hllc", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_hllc_small.json"]),
     ("hydro_minmod", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_minmod.json"]),
     ("hydro_vanleer", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_vanleer.json"]),
+    ("hydro_ppm", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_ppm_small.json"]),
+    ("hydro_weno", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_weno_small.json"]),
+    ("hydro_rk3", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_rk3_smoke.json"]),
     ("rmhd_hlld_full", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_hlld_full.json"]),
+    ("rmhd_ppm", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_rmhd_ppm_small.json"]),
+    ("rmhd_weno", ["python", "solvers/srhd3d_mpi_muscl.py", "--config", "config/config_rmhd_weno_small.json"]),
 ]
 
 
