@@ -3,6 +3,7 @@
 # GRMHD (fixed metric) with simple Schwarzschild source terms (approximate).
 import numpy as np
 from core import rmhd_core
+from core import eos
 from core import gr_metric
 
 GR_METRIC = "minkowski"
@@ -64,7 +65,7 @@ def compute_rhs_grmhd(pr, dx, dy, dz, offs_x, ng):
                 if v2 >= 1.0:
                     v2 = 1.0 - 1e-14
                 W = 1.0 / np.sqrt(1.0 - v2)
-                h = 1.0 + rmhd_core.GAMMA/(rmhd_core.GAMMA-1.0) * p / max(rho, rmhd_core.SMALL)
+                h = eos.enthalpy(rho, p)
                 B2 = Bx*Bx + By*By + Bz*Bz
                 w = rho * h * W * W + B2 + p
                 _, Sx, Sy, Sz, _, _, _, _, _ = rmhd_core.prim_to_cons_rmhd(rho, vx, vy, vz, p, Bx, By, Bz, pr[8,i,j,k], rmhd_core.GAMMA)

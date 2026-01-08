@@ -3,6 +3,7 @@
 # RMHD core: prim<->cons, HLLE fluxes, GLM psi damping, SSPRK2 (first-order).
 import numpy as np
 import numba as nb
+from core import eos
 
 GAMMA = 5.0 / 3.0
 P_MAX = 1.0
@@ -23,6 +24,7 @@ def configure(params):
     GAMMA = float(params.get("GAMMA", GAMMA))
     P_MAX = float(params.get("P_MAX", P_MAX))
     V_MAX = float(params.get("V_MAX", V_MAX))
+    eos.configure(params)
     GLM_CH = float(params.get("GLM_CH", GLM_CH))
     GLM_CP = float(params.get("GLM_CP", GLM_CP))
     limiter = str(params.get("LIMITER", "mc")).lower()
@@ -146,7 +148,7 @@ def prim_to_cons_rmhd(rho, vx, vy, vz, p, Bx, By, Bz, psi, gamma=GAMMA):
 
     B2 = Bx*Bx + By*By + Bz*Bz
     W  = 1.0/np.sqrt(1.0 - (vx*vx + vy*vy + vz*vz))
-    h  = 1.0 + gamma/(gamma-1.0)*p/max(rho, SMALL)
+    h  = eos.enthalpy(rho, p)
     rhoh = rho*h
 
     pt = p + 0.5*B2
@@ -172,7 +174,8 @@ def _cons_to_prim_hydro(D, Sx, Sy, Sz, tau, gamma=GAMMA):
     E  = tau + D
     S2 = Sx*Sx + Sy*Sy + Sz*Sz
 
-    p = (gamma - 1.0) * (E - D)
+    gamma0 = eos.gamma_eff(max(D, SMALL))
+    p = (gamma0 - 1.0) * (E - D)
     if p < SMALL: p = SMALL
     if p > P_MAX: p = P_MAX
 
@@ -184,7 +187,7 @@ def _cons_to_prim_hydro(D, Sx, Sy, Sz, tau, gamma=GAMMA):
             v2 = V_MAX*V_MAX - 1e-14
         W  = 1.0 / np.sqrt(1.0 - v2)
         rho= D / max(W, SMALL)
-        h  = 1.0 + gamma/(gamma-1.0) * p / max(rho, SMALL)
+        h  = eos.enthalpy(rho, p)
         w  = rho * h
         f  = Wm - w * W * W
         dfdp = 1.0
@@ -201,7 +204,8 @@ def _cons_to_prim_hydro(D, Sx, Sy, Sz, tau, gamma=GAMMA):
         p = p_new
 
     if not ok:
-        p = (gamma - 1.0) * (E - D)
+        gamma0 = eos.gamma_eff(max(D, SMALL))
+        p = (gamma0 - 1.0) * (E - D)
         if p < SMALL: p = SMALL
         if p > P_MAX: p = P_MAX
 
@@ -238,7 +242,8 @@ def rmhd_f_of_Z(Z, D, tau, B2, SB, S2):
     W = np.sqrt(W2)
     rho = D / max(W, SMALL)
     h = Z / max(rho*W2, SMALL)
-    p = (h - 1.0) * rho * (GAMMA - 1.0) / GAMMA
+    gamma = eos.gamma_eff(rho)
+    p = (h - 1.0) * rho * (gamma - 1.0) / gamma
     if p < SMALL: p = SMALL
     if p > P_MAX: p = P_MAX
     b2 = B2 / W2 + vb*vb
@@ -261,7 +266,7 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     if v20 >= V_MAX*V_MAX:
         v20 = V_MAX*V_MAX - 1e-14
     W0 = 1.0 / np.sqrt(1.0 - v20)
-    h0 = 1.0 + GAMMA/(GAMMA-1.0)*p0/max(rho0, SMALL)
+    h0 = eos.enthalpy(rho0, p0)
     Z0 = max(rho0*h0*W0*W0, SMALL)
     Z1 = max(D + tau + B2, SMALL)
 
@@ -332,7 +337,8 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     W = 1.0 / np.sqrt(1.0 - (vx*vx + vy*vy + vz*vz))
     rho = D / max(W, SMALL)
     h = Z / max(rho*W*W, SMALL)
-    p = (h - 1.0) * rho * (GAMMA - 1.0) / GAMMA
+    gamma = eos.gamma_eff(rho)
+    p = (h - 1.0) * rho * (gamma - 1.0) / gamma
 
     # If recovery yields invalid values, fall back to hydro guess with B kept.
     if not np.isfinite(rho) or not np.isfinite(p) or rho <= 0.0 or p <= 0.0:
@@ -430,7 +436,7 @@ def rmhd_fast_speed(rho, p, vx, vy, vz, Bx, By, Bz):
     if p > P_MAX:
         p = P_MAX
 
-    h = 1.0 + GAMMA/(GAMMA-1.0)*p/max(rho, SMALL)
+    h = eos.enthalpy(rho, p)
     rhoh = rho*h
     B2 = Bx*Bx + By*By + Bz*Bz
     vb = vx*Bx + vy*By + vz*Bz
@@ -440,7 +446,8 @@ def rmhd_fast_speed(rho, p, vx, vy, vz, Bx, By, Bz):
     bz = (Bz + b0*vz)/W
     b2 = (bx*bx + by*by + bz*bz) - b0*b0
 
-    cs2 = GAMMA*p/max(rhoh, SMALL)
+    gamma = eos.gamma_eff(rho)
+    cs2 = gamma*p/max(rhoh, SMALL)
     if cs2 < 0.0: cs2 = 0.0
     if cs2 > 1.0 - 1e-14: cs2 = 1.0 - 1e-14
     ca2 = b2 / max(rhoh + b2, SMALL)

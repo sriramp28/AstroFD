@@ -14,6 +14,7 @@ CASES = [
 def main():
     ap = argparse.ArgumentParser(description="Run SN-lite test problems.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-verify", action="store_true", help="skip diagnostics verification")
     ap.add_argument("--python", default="python")
     args = ap.parse_args()
 
@@ -26,6 +27,13 @@ def main():
         proc = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         if proc.returncode != 0:
             failed.append(cfg)
+            continue
+        if not args.no_verify:
+            vcmd = [args.python, "tools/verify_sn_diagnostics.py"]
+            print(f"[sn-test] {' '.join(vcmd)}", flush=True)
+            vproc = subprocess.run(vcmd, stdout=sys.stdout, stderr=sys.stderr)
+            if vproc.returncode != 0:
+                failed.append(cfg)
 
     if failed:
         print(f"[sn-test] failed: {failed}")
