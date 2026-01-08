@@ -262,6 +262,12 @@ pdflatex astrofd.tex
 pdflatex astrofd.tex
 ```
 
+Generate the full configuration table (CSV + LaTeX):
+
+```bash
+python tools/gen_config_table.py
+```
+
 ## Troubleshooting
 
 - MPI warnings about socket binding can appear in sandboxed or restricted

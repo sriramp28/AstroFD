@@ -425,224 +425,27 @@ regenerated with \texttt{tools/make\_doc\_figures.py}.
 \input{figures/validation_summary.tex}
 
 \appendix
+\section{Valencia Derivation Details}
+Let $n^\mu$ be the unit normal to constant-time slices and
+$\gamma_{\mu\nu} = g_{\mu\nu} + n_\mu n_\nu$ be the spatial projector.
+We decompose the 4-velocity as $u^\mu = W (n^\mu + v^\mu)$ with
+$v^\mu n_\mu = 0$. The conserved energy density and momentum are
+\begin{align}
+E &= T^{\mu\nu} n_\mu n_\nu, \\
+S_i &= -T^{\mu\nu} n_\mu \gamma_{\nu i}, \\
+S_{ij} &= T^{\mu\nu} \gamma_{\mu i} \gamma_{\nu j}.
+\end{align}
+For ideal MHD, $b^\mu$ satisfies $b^\mu u_\mu = 0$, and the ideal electric
+field is $\mathbf{E} = -\mathbf{v} \times \mathbf{B}$. The Valencia system
+then follows from projecting $\nabla_\mu T^{\mu\nu} = 0$ along $n^\nu$ and
+within the spatial hypersurface. The code uses analytic fixed metrics,
+so $\alpha$, $\beta^i$, $\gamma_{ij}$, and Christoffel symbols are
+computed analytically for each supported background.
+
 \section{Configuration Parameters}
 Tables in this section list the default configuration keys from
 \texttt{utils/settings.py}. Units are code units unless stated otherwise.
-
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{longtable}{p{0.28\linewidth} p{0.12\linewidth} p{0.5\linewidth}}
-\hline
-Key & Default & Notes \\
-\hline
-\endfirsthead
-\hline
-Key & Default & Notes \\
-\hline
-\endhead
-\multicolumn{3}{l}{\textbf{Grid and Numerics}} \\
-NX & 128 & Grid cells in x. \\
-NY & 96 & Grid cells in y. \\
-NZ & 96 & Grid cells in z. \\
-Lx & 1.0 & Domain length in x. \\
-Ly & 1.0 & Domain length in y. \\
-Lz & 1.0 & Domain length in z. \\
-T\_END & 0.25 & End time. \\
-OUT\_EVERY & 50 & Output cadence in steps. \\
-PRINT\_EVERY & 10 & Log cadence in steps. \\
-NG & 2 & Ghost zones per side. \\
-CFL & 0.35 & Courant number. \\
-GAMMA & 5/3 & Ideal-gas gamma (SRHD/RMHD). \\
-HALO\_EXCHANGE & blocking & MPI halo exchange mode. \\
-RECON & muscl & Reconstruction (muscl/ppm/weno). \\
-LIMITER & mc & Slope limiter for MUSCL. \\
-RIEMANN & hlle & Riemann solver (hlle/hllc/hlld/hlld\_full). \\
-RK\_ORDER & 2 & SSPRK order (2 or 3). \\
-CHECKPOINT\_EVERY & 0 & Checkpoint cadence (0 disables). \\
-RESTART\_PATH & null & Path to restart checkpoint. \\
-\multicolumn{3}{l}{\textbf{Adaptivity and Threading}} \\
-ADAPTIVITY\_ENABLED & false & Static nested refinement (single rank). \\
-ADAPTIVITY\_MODE & nested\_static & Refinement mode. \\
-\makecell[l]{ADAPTIVITY\\\_REFINEMENT} & 2 & Refinement factor. \\
-ADAPTIVITY\_REGION & null & Refinement region [xlo,xhi,ylo,yhi,zlo,zhi]. \\
-ADAPTIVITY\_SUBCYCLES & null & Subcycling steps (optional). \\
-NUMBA\_NUM\_THREADS & null & Numba thread override. \\
-OMP\_NUM\_THREADS & null & OpenMP thread override. \\
-\multicolumn{3}{l}{\textbf{Jet Nozzle and Ambient}} \\
-JET\_RADIUS & 0.12 & Jet radius. \\
-JET\_CENTER & null & Jet center (defaults to mid y/z). \\
-GAMMA\_JET & 6.0 & Jet Lorentz factor. \\
-ETA\_RHO & 0.05 & Jet-to-ambient density ratio. \\
-P\_EQ & 1.0e-2 & Jet/ambient equilibrium pressure. \\
-SHEAR\_THICK & 0.02 & Shear layer thickness. \\
-NOZZLE\_TURB & true & Enable nozzle perturbations. \\
-TURB\_VAMP & 0.02 & Velocity perturbation amplitude. \\
-TURB\_PAMP & 0.0 & Pressure perturbation amplitude. \\
-NOZZLE\_PROFILE & top\_hat & top\_hat/taper/parabolic. \\
-NOZZLE\_PERTURB & null & random/sinusoidal. \\
-RHO\_AMB & 1.0 & Ambient density. \\
-P\_AMB & null & Ambient pressure (defaults to P\_EQ). \\
-VX\_AMB & 0.0 & Ambient velocity x. \\
-VY\_AMB & 0.0 & Ambient velocity y. \\
-VZ\_AMB & 0.0 & Ambient velocity z. \\
-P\_MAX & 1.0 & Pressure cap for stability. \\
-V\_MAX & 0.999 & Velocity cap for stability. \\
-\multicolumn{3}{l}{\textbf{RMHD and GR Controls}} \\
-PHYSICS & hydro & hydro/rmhd/grhd/grmhd/sn. \\
-GLM\_CH & 1.0 & GLM hyperbolic cleaning speed. \\
-GLM\_CP & 0.1 & GLM damping coefficient. \\
-B\_INIT & none & none/poloidal/toroidal. \\
-B0 & 0.0 & Reference magnetic field magnitude. \\
-GR\_METRIC & minkowski & minkowski/schwarzschild/kerr-schild. \\
-GR\_MASS & 1.0 & Metric mass parameter. \\
-GR\_SPIN & 0.0 & Metric spin parameter. \\
-ORTHONORMAL\_FLUX & true & Orthonormal-frame flux evaluation. \\
-\multicolumn{3}{l}{\textbf{Dissipation}} \\
-DISSIPATION\_ENABLED & false & Enable causal dissipation. \\
-DISSIPATION\_MODEL & \makecell[l]{israel\\\_stewart} & Dissipation model. \\
-RELAX\_TAU & 0.1 & Global relaxation time. \\
-BULK\_ZETA & 0.0 & Bulk viscosity coefficient. \\
-SHEAR\_ETA & 0.0 & Shear viscosity coefficient. \\
-HEAT\_KAPPA & 0.0 & Heat conductivity coefficient. \\
-RELAX\_TAU\_BULK & null & Bulk relaxation time override. \\
-RELAX\_TAU\_SHEAR & null & Shear relaxation time override. \\
-RELAX\_TAU\_HEAT & null & Heat relaxation time override. \\
-DISSIPATION\_CAP\_FRAC & 0.5 & Maximum fractional update. \\
-DISSIPATION\_ADVECT & true & Advect dissipative fields. \\
-DISSIPATION\_SUBCYCLES & 1 & IMEX subcycles per step. \\
-\makecell[l]{DISSIPATION\\\_SUBCYCLES\\\_AUTO} & true & Auto subcycle selection. \\
-\makecell[l]{DISSIPATION\\\_SUBCYCLES\\\_MAX} & 32 & Maximum subcycles. \\
-\makecell[l]{DISSIPATION\\\_SUBCYCLE\\\_FRACTION} & 0.5 & Subcycle timestep fraction. \\
-\multicolumn{3}{l}{\textbf{Tracers and Chemistry}} \\
-N\_TRACERS & 0 & Number of passive tracers. \\
-TRACER\_NAMES & null & Optional tracer names list. \\
-TRACER\_NOZZLE\_VALUES & null & Nozzle tracer values. \\
-TRACER\_AMB\_VALUES & null & Ambient tracer values. \\
-CHEMISTRY\_ENABLED & false & Enable H/He network. \\
-CHEM\_X & 0.76 & Hydrogen mass fraction. \\
-CHEM\_Y & 0.24 & Helium mass fraction. \\
-CHEM\_TUNIT\_K & 1.0e4 & Temperature unit in K. \\
-CHEM\_RATE\_SCALE & 1.0 & Rate scaling factor. \\
-CHEM\_ENERGY\_SCALE & 1.0 & Energy coupling scale. \\
-CHEM\_TMIN\_K & 1.0 & Temperature floor in K. \\
-CHEM\_X\_HII\_AMB & 0.0 & Ambient HII fraction. \\
-CHEM\_X\_HEII\_AMB & 0.0 & Ambient HeII fraction. \\
-CHEM\_X\_HEIII\_AMB & 0.0 & Ambient HeIII fraction. \\
-CHEM\_X\_HII\_NOZZLE & null & Nozzle HII fraction. \\
-CHEM\_X\_HEII\_NOZZLE & null & Nozzle HeII fraction. \\
-CHEM\_X\_HEIII\_NOZZLE & null & Nozzle HeIII fraction. \\
-\multicolumn{3}{l}{\textbf{Two-Temperature and Cooling}} \\
-TWO\_TEMPERATURE & false & Enable two-temperature model. \\
-TEI\_TAU & 0.5 & Electron-ion relaxation time. \\
-TE\_AMB & null & Ambient electron temperature. \\
-TI\_AMB & null & Ambient ion temperature. \\
-TE\_NOZZLE & null & Nozzle electron temperature. \\
-TI\_NOZZLE & null & Nozzle ion temperature. \\
-COOLING\_ENABLED & false & Enable cooling/heating. \\
-COOLING\_LAMBDA & 0.0 & Cooling coefficient. \\
-HEATING\_RATE & 0.0 & Uniform heating rate. \\
-\multicolumn{3}{l}{\textbf{Resistive and Non-Ideal MHD}} \\
-RESISTIVE\_ENABLED & false & Enable resistive RMHD. \\
-RESISTIVITY & 0.0 & Resistivity coefficient. \\
-\makecell[l]{NONIDEAL\\\_MHD\\\_ENABLED} & false & Enable non-ideal terms. \\
-HALL\_ENABLED & false & Enable Hall term. \\
-HALL\_COEFF & 0.0 & Hall coefficient. \\
-AMBIPOLAR\_ENABLED & false & Enable ambipolar term. \\
-AMBIPOLAR\_COEFF & 0.0 & Ambipolar coefficient. \\
-HYPERRESIST\_ENABLED & false & Enable hyper-resistive term. \\
-HYPERRESIST\_COEFF & 0.0 & Hyper-resistive coefficient. \\
-JOULE\_HEAT\_ENABLED & false & Enable Joule heating. \\
-JOULE\_HEAT\_EFF & 0.0 & Joule heating efficiency. \\
-\multicolumn{3}{l}{\textbf{Radiation and Kinetic Effects}} \\
-\makecell[l]{RADIATION\\\_COUPLING\\\_ENABLED} & false & Enable radiation coupling. \\
-RADIATION\_COEFF & 0.0 & Coupling coefficient. \\
-RADIATION\_T\_RAD & 0.0 & Radiation temperature. \\
-\makecell[l]{RADIATION\\\_COUPLING\\\_TARGET} & gas & gas/electron target. \\
-\makecell[l]{KINETIC\\\_EFFECTS\\\_ENABLED} & false & Enable kinetic heating. \\
-KINETIC\_MODEL & shear & Kinetic model choice. \\
-KINETIC\_COEFF & 0.0 & Kinetic coefficient. \\
-KINETIC\_CAP & 0.0 & Kinetic cap. \\
-\multicolumn{3}{l}{\textbf{SN-lite Gravity and Heating}} \\
-SN\_GRAVITY\_ENABLED & false & Enable SN gravity. \\
-SN\_GRAVITY\_MODEL & point\_mass & point\_mass/monopole/monopole\_plus\_point. \\
-SN\_GRAVITY\_MASS & 1.0 & Point mass. \\
-SN\_GRAVITY\_G & 1.0 & Gravitational constant. \\
-SN\_GRAVITY\_SOFTEN & 0.01 & Softening length. \\
-SN\_GRAVITY\_BINS & 64 & Monopole bins. \\
-\makecell[l]{SN\\\_GRAVITY\\\_UPDATE\\\_EVERY} & 1 & Monopole update cadence. \\
-SN\_GRAVITY\_CENTER & null & Gravity center. \\
-SN\_GRAVITY\_ENERGY & false & Couple gravity to energy. \\
-SN\_HEATING\_ENABLED & false & Enable gain heating/cooling. \\
-SN\_HEATING\_MODEL & \makecell[l]{gain\\\_spherical} & gain model. \\
-SN\_HEATING\_RATE & 0.0 & Heating rate. \\
-SN\_COOLING\_RATE & 0.0 & Cooling rate. \\
-SN\_GAIN\_RADIUS & 0.2 & Gain radius. \\
-SN\_GAIN\_WIDTH & 0.1 & Gain width. \\
-SN\_GAIN\_POW & 2.0 & Gain power-law exponent. \\
-SN\_HEATING\_RHO\_EXP & 0.0 & Density exponent. \\
-SN\_HEATING\_P\_EXP & 0.0 & Pressure exponent. \\
-SN\_HEATING\_TIME\_TAU & 0.0 & Heating decay timescale. \\
-SN\_HEATING\_TIME\_T0 & 0.0 & Heating decay start time. \\
-SN\_COOLING\_TEXP & 0.0 & Cooling temperature exponent. \\
-SN\_COOLING\_TREF & 1.0 & Cooling temperature reference. \\
-SN\_SHOCK\_P\_RATIO & 1.2 & Shock detection pressure ratio. \\
-SN\_SHOCK\_P\_REF & null & Shock detection reference pressure. \\
-\multicolumn{3}{l}{\textbf{Neutrino Lightbulb}} \\
-NEUTRINO\_ENABLED & false & Enable neutrino lightbulb. \\
-NEUTRINO\_MODEL & lightbulb & Lightbulb model. \\
-NEUTRINO\_LUM & 0.0 & Neutrino luminosity. \\
-NEUTRINO\_EPS & 1.0 & Neutrino energy scale. \\
-NEUTRINO\_KAPPA & 0.0 & Opacity coefficient. \\
-NEUTRINO\_ABS\_COEFF & 0.0 & Absorption coefficient. \\
-NEUTRINO\_COOL\_COEFF & 0.0 & Cooling coefficient. \\
-NEUTRINO\_COOL\_TEXP & 6.0 & Cooling temperature exponent. \\
-NEUTRINO\_R0 & 0.0 & Lightbulb radius. \\
-NEUTRINO\_R1 & 0.0 & Lightbulb width. \\
-NEUTRINO\_TAU\_FLOOR & 0.0 & Optical depth floor. \\
-NEUTRINO\_TIME\_TAU & 0.0 & Lightbulb decay timescale. \\
-NEUTRINO\_TIME\_T0 & 0.0 & Lightbulb decay start time. \\
-\multicolumn{3}{l}{\textbf{SN-lite EOS and Initialization}} \\
-SN\_EOS\_GAMMA & 4/3 & SN EOS gamma. \\
-EOS\_MODE & gamma & gamma/piecewise/table. \\
-EOS\_PIECEWISE\_RHO & null & Density breaks for piecewise gamma. \\
-EOS\_PIECEWISE\_GAMMA & null & Gamma values for piecewise EOS. \\
-EOS\_GAMMA\_TABLE\_RHO & null & Density table for gamma(rho). \\
-EOS\_GAMMA\_TABLE\_VAL & null & Gamma table values. \\
-EOS\_TABLE\_LOG & true & Log-space interpolation. \\
-SN\_COMP\_NAMES & null & SN composition names. \\
-SN\_COMP\_AMB\_VALUES & null & Ambient composition values. \\
-\makecell[l]{SN\\\_COMP\\\_NOZZLE\\\_VALUES} & null & Nozzle composition values. \\
-SN\_INIT & uniform & SN initial condition. \\
-SN\_SEDOV\_RADIUS & 0.05 & Sedov blast radius. \\
-SN\_SEDOV\_DP & 1.0 & Sedov pressure jump. \\
-SN\_SPHERE\_RADIUS & 0.2 & SN sphere radius. \\
-SN\_RHO\_IN & 1.0 & Inner density. \\
-SN\_RHO\_OUT & 0.1 & Outer density. \\
-SN\_P\_IN & 1.0 & Inner pressure. \\
-SN\_P\_OUT & 0.01 & Outer pressure. \\
-\multicolumn{3}{l}{\textbf{Results, Debug, and Diagnostics}} \\
-RESULTS\_UNIQUE & false & Use unique results subdir. \\
-SAVE\_RUN\_CONFIG & true & Save run config in results. \\
-DEBUG & false & Debug logging. \\
-ASSERTS & false & Enable runtime asserts. \\
-CHECK\_NAN\_EVERY & 0 & NaN check cadence. \\
-PERF\_ENABLED & false & Performance logging. \\
-PERF\_EVERY & 10 & Performance cadence. \\
-PERF\_RESET\_EVERY & 0 & Performance reset cadence. \\
-DIAG\_COCOON\_ENABLED & false & Cocoon diagnostics. \\
-\makecell[l]{DIAG\\\_COCOON\\\_TRACER\\\_IDX} & 0 & Tracer index for cocoon. \\
-\makecell[l]{DIAG\\\_COCOON\\\_TRACER\\\_MIN} & 0.05 & Cocoon tracer min. \\
-\makecell[l]{DIAG\\\_COCOON\\\_TRACER\\\_MAX} & 1.0 & Cocoon tracer max. \\
-DIAG\_MIXING\_ENABLED & false & Mixing diagnostics. \\
-\makecell[l]{DIAG\\\_MIXING\\\_TRACER\\\_IDX} & 0 & Tracer index for mixing. \\
-DIAG\_MIXING\_MIN & 0.05 & Mixing tracer min. \\
-DIAG\_MIXING\_MAX & 0.95 & Mixing tracer max. \\
-DIAG\_MIXING\_X\_FRAC & 0.5 & Mixing midplane fraction. \\
-RESTART\_STRICT & false & Strict restart validation. \\
-\hline
-\end{longtable}
-\normalsize
-\setlength{\tabcolsep}{6pt}
+\input{figures/config_table.tex}
 
 \section{Paper Template Checklist}
 \subsection{Recommended Figures}
