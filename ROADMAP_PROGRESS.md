@@ -8,6 +8,7 @@ This file tracks the current plan and completion status so work can resume easil
    - Monopole/enclosed-mass gravity (done)
    - Detailed cooling/heating profiles (done)
 2. Proper EOS integration (piecewise/tabulated, gamma-law fallback)
+   - Variable-gamma EOS module wired into SRHD/GRHD (in progress)
 3. Numerics/engineering
    - Checkpoint/restart
    - Performance hooks

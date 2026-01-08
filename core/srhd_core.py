@@ -3,6 +3,7 @@
 # SRHD numerics core: primitives/conserved, MUSCL+HLLE fluxes, SSPRK2.
 import numpy as np
 import numba as nb
+from core import eos
 
 # Module-level parameters set by configure() before first JIT call.
 GAMMA = 5.0 / 3.0
@@ -21,6 +22,7 @@ def configure(params):
     GAMMA = float(params.get("GAMMA", GAMMA))
     P_MAX = float(params.get("P_MAX", P_MAX))
     V_MAX = float(params.get("V_MAX", V_MAX))
+    eos.configure(params)
     limiter = str(params.get("LIMITER", "mc")).lower()
     if limiter == "minmod":
         LIMITER_ID = 1
@@ -49,7 +51,7 @@ def prim_to_cons(rho, vx, vy, vz, p, gamma=GAMMA):
     if v2 >= 1.0:
         v2 = 1.0 - 1e-14
     W  = 1.0/np.sqrt(1.0 - v2)
-    h  = 1.0 + gamma/(gamma-1.0)*p/np.maximum(rho, SMALL)
+    h  = eos.enthalpy(rho, p)
     w  = rho*h
     D  = rho*W
     Sx = w*W*W*vx
@@ -64,7 +66,8 @@ def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
     S2 = Sx*Sx + Sy*Sy + Sz*Sz
 
     # initial guess: ideal-gas-like
-    p = (gamma - 1.0) * (E - D)
+    gamma0 = eos.gamma_eff(max(D, SMALL))
+    p = (gamma0 - 1.0) * (E - D)
     if p < SMALL: p = SMALL
     if p > P_MAX: p = P_MAX
 
@@ -76,7 +79,7 @@ def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
             v2 = V_MAX*V_MAX - 1e-14
         W  = 1.0 / np.sqrt(1.0 - v2)
         rho= D / max(W, SMALL)
-        h  = 1.0 + gamma/(gamma-1.0) * p / max(rho, SMALL)
+        h  = eos.enthalpy(rho, p)
         w  = rho * h
         # residual: Wm - w W^2 = 0
         f  = Wm - w * W * W
@@ -100,7 +103,8 @@ def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
 
     if not ok:
         # fallback: energy-based clamp (very robust)
-        p = (gamma - 1.0) * (E - D)
+        gamma0 = eos.gamma_eff(max(D, SMALL))
+        p = (gamma0 - 1.0) * (E - D)
         if p < SMALL: p = SMALL
         if p > P_MAX: p = P_MAX
 
@@ -132,12 +136,7 @@ def cons_to_prim(D, Sx, Sy, Sz, tau, gamma=GAMMA):
 
 @nb.njit(fastmath=True)
 def sound_speed(rho, p, gamma=GAMMA):
-    h  = 1.0 + gamma/(gamma-1.0)*p/np.maximum(rho, SMALL)
-    w  = rho*h
-    cs2= gamma*p/np.maximum(w, SMALL)
-    if cs2 < 0.0: cs2 = 0.0
-    if cs2 > 1.0 - 1e-14: cs2 = 1.0 - 1e-14
-    return np.sqrt(cs2)
+    return eos.sound_speed(rho, p)
 
 @nb.njit(fastmath=True)
 def eig_speeds(vn, cs):

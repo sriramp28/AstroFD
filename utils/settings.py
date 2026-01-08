@@ -56,6 +56,12 @@ def load_settings():
         SN_HEATING_P_EXP=0.0,
         # SN-lite EOS + composition
         SN_EOS_GAMMA=4.0/3.0,
+        EOS_MODE="gamma",
+        EOS_PIECEWISE_RHO=None,
+        EOS_PIECEWISE_GAMMA=None,
+        EOS_GAMMA_TABLE_RHO=None,
+        EOS_GAMMA_TABLE_VAL=None,
+        EOS_TABLE_LOG=True,
         SN_COMP_NAMES=None,
         SN_COMP_AMB_VALUES=None,
         SN_COMP_NOZZLE_VALUES=None,
