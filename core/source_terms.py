@@ -43,6 +43,7 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng, t):
     c0 = float(cfg.get("SN_COOLING_RATE", 0.0))
     r0 = float(cfg.get("SN_GAIN_RADIUS", 0.2))
     r1 = float(cfg.get("SN_GAIN_WIDTH", 0.1))
+    rp = float(cfg.get("SN_GAIN_POW", 2.0))
     rho_exp = float(cfg.get("SN_HEATING_RHO_EXP", 0.0))
     p_exp = float(cfg.get("SN_HEATING_P_EXP", 0.0))
     tau = float(cfg.get("SN_HEATING_TIME_TAU", 0.0))
@@ -74,6 +75,13 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng, t):
                         xi = (r - r0) / max(r1, 1e-12)
                         weight = 1.0 / (1.0 + xi*xi)
                         heat = h0 * weight
+                        cool = c0 * weight
+                elif model == "gain_powerlaw":
+                    if r >= r0:
+                        weight = (r0 / max(r, 1e-12)) ** max(rp, 0.0)
+                        heat = h0 * weight
+                    else:
+                        weight = (r0 / max(r, 1e-12)) ** max(rp, 0.0)
                         cool = c0 * weight
                 elif model == "gain_exponential":
                     if r >= r0:

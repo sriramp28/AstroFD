@@ -52,6 +52,7 @@ def load_settings():
         SN_COOLING_RATE=0.0,
         SN_GAIN_RADIUS=0.2,
         SN_GAIN_WIDTH=0.1,
+        SN_GAIN_POW=2.0,
         SN_HEATING_RHO_EXP=0.0,
         SN_HEATING_P_EXP=0.0,
         SN_HEATING_TIME_TAU=0.0,

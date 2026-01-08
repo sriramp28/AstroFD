@@ -38,13 +38,15 @@ def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng, menc=None, r_edges=None):
                 r = math.sqrt(r2)
                 if r == 0.0:
                     continue
-                if model == "monopole" and menc is not None and r_edges is not None:
+                if model in ("monopole", "monopole_plus_point") and menc is not None and r_edges is not None:
                     idx = np.searchsorted(r_edges, r, side="right") - 1
                     if idx < 0:
                         idx = 0
                     if idx >= len(menc):
                         idx = len(menc) - 1
                     mloc = menc[idx]
+                    if model == "monopole_plus_point":
+                        mloc += mass
                 else:
                     mloc = mass
                 fac = -gconst * mloc / (r2 * r)
