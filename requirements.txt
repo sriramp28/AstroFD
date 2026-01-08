@@ -1,0 +1,5 @@
+numpy
+numba
+mpi4py
+matplotlib
+json5

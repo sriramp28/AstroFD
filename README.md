@@ -1,29 +1,34 @@
 # AstroFD
 
-## Quick smoke tests
+Relativistic (SR/GR) hydro and magnetohydrodynamics with jet and SN-lite physics.
 
-Two tiny configs are included for fast checks on an 8^3 grid:
-
-- `config/config_two_temp.json`: SRHD with two-temperature relaxation enabled.
-- `config/config_resist.json`: RMHD with resistive diffusion enabled.
-
-Example runs:
+## Quickstart
 
 ```bash
-python solvers/srhd3d_mpi_muscl.py --config config/config_two_temp.json --nx 8 --ny 8 --nz 8 --t-end 0.001 --out-every 1 --print-every 1
-python solvers/srhd3d_mpi_muscl.py --config config/config_resist.json --nx 8 --ny 8 --nz 8 --t-end 0.001 --out-every 1 --print-every 1
+scripts/setup_env.sh
+source scripts/env.sh
 ```
 
-## Phase 5 config keys
+Run a tiny SRHD test:
 
-Extended thermodynamics and resistive RMHD are controlled through the following keys:
+```bash
+python solvers/srhd3d_mpi_muscl.py --config config/config_two_temp.json
+```
 
-- `TWO_TEMPERATURE` (bool): enable Te/Ti passive fields and relaxation to gas temperature.
-- `TEI_TAU` (float): relaxation time for Te/Ti toward `T = p/rho`.
-- `TE_AMB`, `TI_AMB` (float): ambient electron/ion temperature.
-- `TE_NOZZLE`, `TI_NOZZLE` (float): inlet electron/ion temperature.
-- `COOLING_ENABLED` (bool): enable simple cooling/heating source on pressure.
-- `COOLING_LAMBDA` (float): cooling rate coefficient (applied to pressure).
-- `HEATING_RATE` (float): constant heating rate (applied to pressure).
-- `RESISTIVE_ENABLED` (bool): enable Ohmic diffusion of B in RMHD.
-- `RESISTIVITY` (float): resistivity coefficient for Laplacian diffusion of B.
+Run the full validation suite (small tests):
+
+```bash
+python tools/run_validation_suite.py --quick
+```
+
+## Documentation
+
+- `docs/USER_GUIDE.md`
+- `docs/TECHNICAL_REFERENCE.md`
+- `docs/PRODUCTION_READINESS.md`
+- `docs/astrofd.tex` (LaTeX writeup)
+
+## Notes
+
+- MPI warnings about socket binding may appear in sandboxed environments; runs still complete.
+- For CuPy-accelerated post-processing, install CuPy and pass `--backend cupy` to tools.
