@@ -152,8 +152,15 @@ def load_settings():
         KINETIC_CAP=0.0,
         # results
         RESULTS_UNIQUE=False,
+        SAVE_RUN_CONFIG=True,
         # debug
-        DEBUG=False, ASSERTS=False, CHECK_NAN_EVERY=0
+        DEBUG=False, ASSERTS=False, CHECK_NAN_EVERY=0,
+        # performance hooks
+        PERF_ENABLED=False,
+        PERF_EVERY=10,
+        PERF_RESET_EVERY=0,
+        # restart checks
+        RESTART_STRICT=False,
     )
 
     ap = argparse.ArgumentParser(description="3D SRHD jet (MUSCL + HLLE + MPI)")

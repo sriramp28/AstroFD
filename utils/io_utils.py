@@ -1,4 +1,5 @@
 # utils/io_utils.py
+import json
 import os
 from datetime import datetime
 
@@ -16,3 +17,13 @@ def make_run_dir(base="results", unique=False):
         path = os.path.join(base, date)
     os.makedirs(path, exist_ok=True)
     return path
+
+def write_run_config(run_dir, settings):
+    path = os.path.join(run_dir, "run_config.json")
+    if os.path.exists(path):
+        return
+    try:
+        with open(path, "w") as f:
+            json.dump(settings, f, indent=2, sort_keys=True, default=str)
+    except Exception:
+        return

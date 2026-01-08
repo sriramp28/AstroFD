@@ -10,6 +10,7 @@
 import os
 import sys
 import glob
+import time
 import numpy as np
 from mpi4py import MPI
 
@@ -18,7 +19,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from utils.settings import load_settings
-from utils.io_utils import make_run_dir
+from utils.io_utils import make_run_dir, write_run_config
 from utils import diagnostics
 from core import srhd_core
 from core import rmhd_core
@@ -77,6 +78,10 @@ B0           = settings.get("B0", 0.0)
 RK_ORDER     = int(settings.get("RK_ORDER", 2))
 CHECKPOINT_EVERY = int(settings.get("CHECKPOINT_EVERY", 0))
 RESTART_PATH = settings.get("RESTART_PATH")
+RESTART_STRICT = bool(settings.get("RESTART_STRICT", False))
+PERF_ENABLED = bool(settings.get("PERF_ENABLED", False))
+PERF_EVERY = int(settings.get("PERF_EVERY", 10))
+PERF_RESET_EVERY = int(settings.get("PERF_RESET_EVERY", 0))
 DISSIPATION_ENABLED = settings.get("DISSIPATION_ENABLED", False)
 BULK_ZETA = settings.get("BULK_ZETA", 0.0)
 N_TRACERS = int(settings.get("N_TRACERS", 0))
@@ -250,6 +255,22 @@ def init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz):
                                 pr[4, i, j, k] = float(settings.get("SN_P_OUT", pr[4, i, j, k]))
     return pr
 
+def expected_nv():
+    nv = 9 if PHYSICS in ("rmhd", "grmhd") else 5
+    if DISSIPATION_ENABLED and PHYSICS in ("hydro", "grhd"):
+        nv = 15
+    if PHYSICS == "sn":
+        nv = 5
+    if N_TRACERS > 0:
+        nv += N_TRACERS
+    if N_THERMO > 0:
+        nv += N_THERMO
+    if N_CHEM > 0:
+        nv += N_CHEM
+    if PHYSICS == "sn" and len(SN_COMP_NAMES) > 0:
+        nv += len(SN_COMP_NAMES)
+    return nv
+
 def latest_run_dir(base="results"):
     runs = sorted([d for d in glob.glob(os.path.join(base, "*")) if os.path.isdir(d)])
     if not runs:
@@ -281,11 +302,12 @@ def load_checkpoint(path):
     data = np.load(path)
     pr = data["prim"]
     meta = data["meta"] if "meta" in data.files else None
+    shape = data["shape"] if "shape" in data.files else None
     if meta is None or len(meta) < 5:
-        return pr, 0.0, 0
+        return pr, 0.0, 0, shape
     t = float(meta[3])
     step = int(meta[4])
-    return pr, t, step
+    return pr, t, step, shape
 
 # ------------------------
 # Main
@@ -303,6 +325,8 @@ def main():
         RUN_DIR = make_run_dir(base="results", unique=settings.get("RESULTS_UNIQUE", False))
     if rank == 0:
         print(f"[startup] run directory: {RUN_DIR}", flush=True)
+        if settings.get("SAVE_RUN_CONFIG", True) and not restart_path:
+            write_run_config(RUN_DIR, settings)
 
     # --- startup banner ---
     if rank == 0:
@@ -336,7 +360,11 @@ def main():
     menc = None
     r_edges = None
     if restart_path:
-        pr, t, step = load_checkpoint(restart_path)
+        pr, t, step, shape = load_checkpoint(restart_path)
+        if RESTART_STRICT and shape is not None:
+            expected = np.array([expected_nv(), nx_loc + 2*NG, ny_loc + 2*NG, nz_loc + 2*NG], dtype=np.int64)
+            if not np.all(shape == expected):
+                raise RuntimeError(f"restart shape mismatch: checkpoint {shape} vs expected {expected}")
         if rank == 0:
             print(f"[restart] loaded {restart_path} at t={t:.6e} step={step}", flush=True)
 
@@ -364,7 +392,13 @@ def main():
             print("[jit] RHS kernel compiled and first call done.", flush=True)
 
     # --- time loop ---
+    perf_step_accum = 0.0
+    perf_io_accum = 0.0
+    perf_diag_accum = 0.0
+    perf_count = 0
+
     while t < T_END:
+        step_start = time.perf_counter() if PERF_ENABLED else 0.0
         # CFL timestep
         if PHYSICS in ("hydro", "grhd", "sn"):
             amax_local = srhd_core.max_char_speed(pr, pr.shape[1], pr.shape[2], pr.shape[3])
@@ -449,6 +483,7 @@ def main():
 
         # output + diagnostics
         if step % OUT_EVERY == 0 or abs(t - T_END) < 1e-14:
+            io_start = time.perf_counter() if PERF_ENABLED else 0.0
             fname = os.path.join(RUN_DIR, f"jet3d_rank{rank:04d}_step{step:06d}.npz")
             tracer_fields = {}
             if N_TRACERS > 0:
@@ -494,6 +529,8 @@ def main():
                 )
             if rank == 0:
                 print(f"[io] wrote {fname}", flush=True)
+            if PERF_ENABLED:
+                perf_io_accum += time.perf_counter() - io_start
 
             if PHYSICS in ("hydro", "grhd", "sn"):
                 global_maxG, flux_signed, flux_abs = diagnostics.compute_diagnostics_and_write(
@@ -513,6 +550,7 @@ def main():
                       flush=True)
 
             # centerline diagnostics (write only; no return so no need to assign to any object)
+            diag_start = time.perf_counter() if PERF_ENABLED else 0.0
             diagnostics.compute_centerline_and_write(
                 pr, dx, dy, dz, offs[rank], counts, comm, rank,
                 step, t, RUN_DIR, V_MAX, NG
@@ -527,6 +565,8 @@ def main():
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, RUN_DIR, NG
                 )
+            if PERF_ENABLED:
+                perf_diag_accum += time.perf_counter() - diag_start
 
         if CHECKPOINT_EVERY > 0 and (step % CHECKPOINT_EVERY == 0):
             ckpt = os.path.join(RUN_DIR, f"checkpoint_rank{rank:04d}_step{step:06d}.npz")
@@ -534,10 +574,28 @@ def main():
                 ckpt,
                 prim = pr,
                 meta = np.array([dx, dy, dz, t, step], dtype=np.float64),
+                shape = np.array(pr.shape, dtype=np.int64),
                 comment = "Checkpoint (with ghosts)."
             )
             if rank == 0:
                 print(f"[ckpt] wrote {ckpt}", flush=True)
+        if PERF_ENABLED:
+            perf_step_accum += time.perf_counter() - step_start
+            perf_count += 1
+            if PERF_EVERY > 0 and (step % PERF_EVERY == 0):
+                if rank == 0:
+                    perf_path = os.path.join(RUN_DIR, "perf.csv")
+                    new = not os.path.exists(perf_path)
+                    with open(perf_path, "a") as f:
+                        if new:
+                            f.write("step,step_time,io_time,diag_time,count\n")
+                        f.write(f"{step},{perf_step_accum:.6e},{perf_io_accum:.6e},"
+                                f"{perf_diag_accum:.6e},{perf_count}\n")
+                if PERF_RESET_EVERY > 0 and (step % PERF_RESET_EVERY == 0):
+                    perf_step_accum = 0.0
+                    perf_io_accum = 0.0
+                    perf_diag_accum = 0.0
+                    perf_count = 0
     if rank == 0:
         print("Done.", flush=True)
 

@@ -10,8 +10,8 @@ This file tracks the current plan and completion status so work can resume easil
 2. Proper EOS integration (piecewise/tabulated, gamma-law fallback)
    - Variable-gamma EOS module wired into SRHD/GRHD/RMHD/GRMHD (done)
 3. Numerics/engineering
-   - Checkpoint/restart
-   - Performance hooks
+   - Checkpoint/restart (in progress)
+   - Performance hooks (in progress)
 4. Diagnostics/analysis
    - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
    - Expanded validation suite (in progress)
