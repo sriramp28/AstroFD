@@ -131,6 +131,52 @@ def exchange_halos(pr, comm, left, right):
                       recvbuf=recvR, source=right, recvtag=21)
         pr[:, -NG:, :, :] = recvR                               # copy into right ghosts
 
+def compute_monopole_mass(pr, dx, dy, dz, offs_x, ng, cfg, comm):
+    nbins = int(cfg.get("SN_GRAVITY_BINS", 64))
+    center = cfg.get("SN_GRAVITY_CENTER") or [0.5*Lx, 0.5*Ly, 0.5*Lz]
+    x0, y0, z0 = float(center[0]), float(center[1]), float(center[2])
+    nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
+    # max radius to domain corners
+    corners = [
+        (0.0, 0.0, 0.0),
+        (Lx, 0.0, 0.0),
+        (0.0, Ly, 0.0),
+        (0.0, 0.0, Lz),
+        (Lx, Ly, 0.0),
+        (Lx, 0.0, Lz),
+        (0.0, Ly, Lz),
+        (Lx, Ly, Lz),
+    ]
+    rmax = 0.0
+    for cx, cy, cz in corners:
+        r = ((cx - x0)**2 + (cy - y0)**2 + (cz - z0)**2) ** 0.5
+        if r > rmax:
+            rmax = r
+    if rmax <= 0.0:
+        rmax = 1.0
+    r_edges = np.linspace(0.0, rmax, nbins + 1)
+
+    local_bins = np.zeros(nbins)
+    dV = dx * dy * dz
+    for i in range(ng, nx - ng):
+        x = (offs_x + (i - ng) + 0.5) * dx
+        for j in range(ng, ny - ng):
+            y = (j - ng + 0.5) * dy
+            for k in range(ng, nz - ng):
+                z = (k - ng + 0.5) * dz
+                r = ((x - x0)**2 + (y - y0)**2 + (z - z0)**2) ** 0.5
+                idx = np.searchsorted(r_edges, r, side="right") - 1
+                if idx < 0:
+                    idx = 0
+                if idx >= nbins:
+                    idx = nbins - 1
+                local_bins[idx] += pr[0, i, j, k] * dV
+
+    global_bins = np.zeros(nbins)
+    comm.Allreduce(local_bins, global_bins, op=MPI.SUM)
+    menc = np.cumsum(global_bins)
+    return menc, r_edges
+
 # ------------------------
 # Initialization
 # ------------------------
@@ -287,6 +333,8 @@ def main():
 
     t = 0.0
     step = 0
+    menc = None
+    r_edges = None
     if restart_path:
         pr, t, step = load_checkpoint(restart_path)
         if rank == 0:
@@ -331,9 +379,10 @@ def main():
         exchange_halos(pr, comm, left, right)
         boundary.apply_periodic_yz(pr, NG)
         if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0:      nozzle.apply_nozzle_left_x(
-            pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-        )
+        if rank == 0 and PHYSICS != "sn":
+            nozzle.apply_nozzle_left_x(
+                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+            )
 
         # advance one step
         if PHYSICS in ("hydro", "sn"):
@@ -368,7 +417,14 @@ def main():
         pr = source_terms.apply_cooling_heating(pr, dt, settings)
         pr = source_terms.apply_two_temperature(pr, dt, settings)
         pr = chemistry.apply_ion_chemistry(pr, dt, settings)
-        pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG)
+        if (PHYSICS == "sn" and settings.get("SN_GRAVITY_ENABLED", False)
+                and str(settings.get("SN_GRAVITY_MODEL", "point_mass")).lower() == "monopole"):
+            every = int(settings.get("SN_GRAVITY_UPDATE_EVERY", 1))
+            if every <= 0:
+                every = 1
+            if step % every == 0 or menc is None:
+                menc, r_edges = compute_monopole_mass(pr, dx, dy, dz, offs[rank], NG, settings, comm)
+        pr = gravity.apply_gravity(pr, dt, dx, dy, dz, settings, offs[rank], NG, menc, r_edges)
         pr = source_terms.apply_sn_heating(pr, dt, dx, dy, dz, settings, offs[rank], NG)
         pr = plasma_microphysics.apply_nonideal_mhd(pr, dt, dx, dy, dz, settings, NG)
         pr = source_terms.apply_radiation_coupling(pr, dt, settings)

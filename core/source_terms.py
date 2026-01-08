@@ -43,6 +43,8 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
     c0 = float(cfg.get("SN_COOLING_RATE", 0.0))
     r0 = float(cfg.get("SN_GAIN_RADIUS", 0.2))
     r1 = float(cfg.get("SN_GAIN_WIDTH", 0.1))
+    rho_exp = float(cfg.get("SN_HEATING_RHO_EXP", 0.0))
+    p_exp = float(cfg.get("SN_HEATING_P_EXP", 0.0))
     gamma = float(cfg.get("GAMMA", 5.0/3.0))
     pmax = float(cfg.get("P_MAX", 1.0))
     center = cfg.get("SN_GRAVITY_CENTER", [0.5*cfg.get("Lx", 1.0), 0.5*cfg.get("Ly", 1.0), 0.5*cfg.get("Lz", 1.0)])
@@ -69,6 +71,24 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
                         weight = 1.0 / (1.0 + xi*xi)
                         heat = h0 * weight
                         cool = c0 * weight
+                elif model == "gain_exponential":
+                    if r >= r0:
+                        xi = (r - r0) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -xi)
+                        heat = h0 * weight
+                    else:
+                        xi = (r0 - r) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -xi)
+                        cool = c0 * weight
+                elif model == "gain_gaussian":
+                    if r >= r0:
+                        xi = (r - r0) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -(xi * xi))
+                        heat = h0 * weight
+                    else:
+                        xi = (r0 - r) / max(r1, 1e-12)
+                        weight = pow(2.718281828, -(xi * xi))
+                        cool = c0 * weight
                 elif model == "constant":
                     heat = h0
                     cool = c0
@@ -77,8 +97,14 @@ def apply_sn_heating(pr, dt, dx, dy, dz, cfg, offs_x, ng):
                     rho = pr[0, i, j, k]
                     if rho <= 0.0:
                         continue
-                    dp = (gamma - 1.0) * (heat - cool) * dt
-                    p = pr[4, i, j, k] + dp
+                    p_local = pr[4, i, j, k]
+                    scale = 1.0
+                    if rho_exp != 0.0:
+                        scale *= rho ** rho_exp
+                    if p_exp != 0.0:
+                        scale *= max(p_local, 1e-12) ** p_exp
+                    dp = (gamma - 1.0) * (heat - cool) * scale * dt
+                    p = p_local + dp
                     if p < 1e-12:
                         p = 1e-12
                     if p > pmax:

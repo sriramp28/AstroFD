@@ -2,9 +2,10 @@
 # core/gravity.py
 # Simple Newtonian gravity source terms for SN-lite.
 import math
+import numpy as np
 
 
-def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng):
+def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng, menc=None, r_edges=None):
     if not cfg.get("SN_GRAVITY_ENABLED", False):
         return pr
     if cfg.get("PHYSICS") not in ("sn",):
@@ -19,6 +20,7 @@ def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng):
     p_max = float(cfg.get("P_MAX", 1.0))
     gamma = float(cfg.get("SN_EOS_GAMMA", cfg.get("GAMMA", 5.0/3.0)))
     energy_couple = bool(cfg.get("SN_GRAVITY_ENERGY", False))
+    model = str(cfg.get("SN_GRAVITY_MODEL", "point_mass")).lower()
 
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
     eps2 = soften * soften
@@ -36,7 +38,16 @@ def apply_gravity(pr, dt, dx, dy, dz, cfg, offs_x, ng):
                 r = math.sqrt(r2)
                 if r == 0.0:
                     continue
-                fac = -gconst * mass / (r2 * r)
+                if model == "monopole" and menc is not None and r_edges is not None:
+                    idx = np.searchsorted(r_edges, r, side="right") - 1
+                    if idx < 0:
+                        idx = 0
+                    if idx >= len(menc):
+                        idx = len(menc) - 1
+                    mloc = menc[idx]
+                else:
+                    mloc = mass
+                fac = -gconst * mloc / (r2 * r)
                 gx = fac * rx
                 gy = fac * ry
                 gz = fac * rz

@@ -41,6 +41,8 @@ def load_settings():
         SN_GRAVITY_MASS=1.0,
         SN_GRAVITY_G=1.0,
         SN_GRAVITY_SOFTEN=0.01,
+        SN_GRAVITY_BINS=64,
+        SN_GRAVITY_UPDATE_EVERY=1,
         SN_GRAVITY_CENTER=None,
         SN_GRAVITY_ENERGY=False,
         # SN-lite heating/cooling
@@ -50,6 +52,8 @@ def load_settings():
         SN_COOLING_RATE=0.0,
         SN_GAIN_RADIUS=0.2,
         SN_GAIN_WIDTH=0.1,
+        SN_HEATING_RHO_EXP=0.0,
+        SN_HEATING_P_EXP=0.0,
         # SN-lite EOS + composition
         SN_EOS_GAMMA=4.0/3.0,
         SN_COMP_NAMES=None,
