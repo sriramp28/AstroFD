@@ -146,8 +146,10 @@ def global_dynamic_box(pr, cfg, dx, dy, dz, ng, offs_x, comm):
     count_all = comm.allreduce(count, op=MPI.SUM)
     if count_all == 0:
         return None
-    mins_all = comm.allreduce(mins, op=MPI.MIN)
-    maxs_all = comm.allreduce(maxs, op=MPI.MAX)
+    mins_all = np.empty_like(mins)
+    maxs_all = np.empty_like(maxs)
+    comm.Allreduce(mins, mins_all, op=MPI.MIN)
+    comm.Allreduce(maxs, maxs_all, op=MPI.MAX)
     return (int(mins_all[0]), int(maxs_all[0]),
             int(mins_all[1]), int(maxs_all[1]),
             int(mins_all[2]), int(maxs_all[2]))

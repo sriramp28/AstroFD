@@ -278,8 +278,10 @@ def load_settings():
         if s.get("PHYSICS") in ("rmhd", "grmhd"):
             raise ValueError("DISSIPATION_ENABLED is supported only for hydro/grhd.")
     if s.get("ADAPTIVITY_ENABLED", False):
-        if s.get("ADAPTIVITY_MODE", "nested_static") != "nested_static":
-            raise ValueError("ADAPTIVITY_MODE must be 'nested_static' for now.")
+        mode = str(s.get("ADAPTIVITY_MODE", "nested_static")).lower()
+        if mode not in ("nested_static", "nested_dynamic", "nested_static_mpi", "nested_dynamic_mpi"):
+            raise ValueError("ADAPTIVITY_MODE must be nested_static/nested_dynamic or *_mpi variants.")
+        s["ADAPTIVITY_MODE"] = mode
         if s.get("PHYSICS") in ("sn", "grhd", "grmhd"):
             raise ValueError("ADAPTIVITY_ENABLED currently supports hydro/rmhd only.")
     if str(s.get("HALO_EXCHANGE", "blocking")).lower() not in ("blocking", "nonblocking"):
