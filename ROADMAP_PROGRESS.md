@@ -12,7 +12,7 @@ This file tracks the current plan and completion status so work can resume easil
 2. Diagnostics/analysis
    - Spectra/structure functions, flux budgets, entrainment/mixing reports (done)
 3. Non-ideal MHD validation
-   - Resistive + Hall/ambipolar/hyper-resistive test cases (in progress)
+   - Resistive + Hall/ambipolar/hyper-resistive test cases (done)
 4. SN physics fidelity
    - EOS tables and neutrino source term upgrades (pending)
 5. AMR

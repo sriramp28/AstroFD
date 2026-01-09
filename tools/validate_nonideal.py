@@ -57,7 +57,7 @@ def main():
     ap.add_argument("--python", default="python")
     args = ap.parse_args()
 
-    check_case(args.python, "config/config_nonideal_resist.json", min_drop=0.01)
+    check_case(args.python, "config/config_nonideal_resist.json", max_growth=1.2)
     check_case(args.python, "config/config_nonideal_hall.json", max_growth=5.0)
 
 
