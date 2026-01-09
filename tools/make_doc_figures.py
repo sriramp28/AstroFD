@@ -165,6 +165,11 @@ def write_summary_table(run_dir, out_dir):
             shock_max = np.max(np.array([float(r[2]) for r in rows])[seg])
             heat_eff = np.mean(np.array([float(r[6]) for r in rows])[seg])
 
+    def _fmt(val):
+        if np.isfinite(val):
+            return f"{val:.3e}"
+        return "N/A"
+
     out_path = os.path.join(out_dir, "validation_summary.tex")
     with open(out_path, "w") as f:
         f.write("\\begin{table}[h]\n")
@@ -173,13 +178,13 @@ def write_summary_table(run_dir, out_dir):
         f.write("\\hline\n")
         f.write("Metric & Value \\\\ \n")
         f.write("\\hline\n")
-        f.write(f"Max Lorentz factor & {max_gamma:.3e} \\\\ \n")
-        f.write(f"Max signal speed & {amax:.3e} \\\\ \n")
-        f.write(f"Mean inlet flux (abs) & {inlet_abs:.3e} \\\\ \n")
-        f.write(f"divB max & {divb_max:.3e} \\\\ \n")
-        f.write(f"divB rms & {divb_rms:.3e} \\\\ \n")
-        f.write(f"SN shock radius max & {shock_max:.3e} \\\\ \n")
-        f.write(f"SN heating efficiency mean & {heat_eff:.3e} \\\\ \n")
+        f.write(f"Max Lorentz factor & {_fmt(max_gamma)} \\\\ \n")
+        f.write(f"Max signal speed & {_fmt(amax)} \\\\ \n")
+        f.write(f"Mean inlet flux (abs) & {_fmt(inlet_abs)} \\\\ \n")
+        f.write(f"divB max & {_fmt(divb_max)} \\\\ \n")
+        f.write(f"divB rms & {_fmt(divb_rms)} \\\\ \n")
+        f.write(f"SN shock radius max & {_fmt(shock_max)} \\\\ \n")
+        f.write(f"SN heating efficiency mean & {_fmt(heat_eff)} \\\\ \n")
         f.write("\\hline\n")
         f.write("\\end{tabular}\n")
         f.write("\\caption{Summary diagnostics from the latest run segment.}\n")
