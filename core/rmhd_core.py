@@ -251,8 +251,10 @@ def rmhd_f_of_Z(Z, D, tau, B2, SB, S2):
     return tau_calc - tau
 
 @nb.njit(fastmath=True)
-def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
+def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     # Improved recovery: solve for Z = rho h W^2 using a damped Newton iteration.
+    # status bits: 1=bisection used, 2=fallback to hydro, 4=velocity clipped.
+    status = 0
     B2 = Bx*Bx + By*By + Bz*Bz
     SB = Sx*Bx + Sy*By + Sz*Bz
     S2 = Sx*Sx + Sy*Sy + Sz*Sz
@@ -298,6 +300,7 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
 
     if not ok:
         # Fallback to bisection if Newton stalls.
+        status |= 1
         Zmin = SMALL
         Zmax = max(Z, Z1, 1.0)
         fmin = rmhd_f_of_Z(Zmin, D, tau, B2, SB, S2)
@@ -332,6 +335,7 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     v2 = vx*vx + vy*vy + vz*vz
     vmax2 = V_MAX*V_MAX
     if v2 >= vmax2:
+        status |= 4
         fac = V_MAX / np.sqrt(v2 + 1e-32)
         vx *= fac; vy *= fac; vz *= fac
     W = 1.0 / np.sqrt(1.0 - (vx*vx + vy*vy + vz*vz))
@@ -342,9 +346,22 @@ def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
 
     # If recovery yields invalid values, fall back to hydro guess with B kept.
     if not np.isfinite(rho) or not np.isfinite(p) or rho <= 0.0 or p <= 0.0:
+        status |= 2
         rho, vx, vy, vz, p = rho0, vx0, vy0, vz0, p0
 
-    return floor_prim_rmhd(rho, vx, vy, vz, p, Bx, By, Bz, psi)
+    rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(rho, vx, vy, vz, p, Bx, By, Bz, psi)
+    return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
+
+@nb.njit(fastmath=True)
+def cons_to_prim_rmhd(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
+    rho, vx, vy, vz, p, Bx, By, Bz, psi, _ = _cons_to_prim_rmhd_impl(
+        D, Sx, Sy, Sz, tau, Bx, By, Bz, psi
+    )
+    return rho, vx, vy, vz, p, Bx, By, Bz, psi
+
+@nb.njit(fastmath=True)
+def cons_to_prim_rmhd_status(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
+    return _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi)
 
 @nb.njit(fastmath=True)
 def flux_rmhd_x(prim):

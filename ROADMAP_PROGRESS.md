@@ -4,41 +4,34 @@ This file tracks the current plan and completion status so work can resume easil
 
 ## Current focus (sn-lite-plasma branch)
 
-1. SN-lite physics accuracy
-   - Monopole/enclosed-mass gravity (done)
-   - Detailed cooling/heating profiles (done)
-2. Proper EOS integration (piecewise/tabulated, gamma-law fallback)
-   - Variable-gamma EOS module wired into SRHD/GRHD/RMHD/GRMHD (done)
-3. Numerics/engineering
-   - Checkpoint/restart (done)
-   - Performance hooks (done)
-   - Static nested refinement (done; single-rank)
-   - Threading hooks (done; Numba/OpenMP settings)
-   - Nonblocking halo exchange option (done)
-   - Thread env set before numpy/numba import for better scaling (done)
-4. Diagnostics/analysis
-   - SN-specific metrics (shock radius, gain mass, heating efficiency) (done)
-   - Expanded validation suite (done)
-   - Cocoon pressure + mixing diagnostics (done)
-   - Shell flux budgets (done)
-5. Neutrino transport (deferred)
-   - Lightbulb neutrino heating/cooling (done)
+### Priority work (in progress)
+1. RMHD solver fidelity
+   - Full HLLD implementation (in progress; current HLLD is approximate)
+   - HLLD benchmark validation suite (pending)
+   - Primitive recovery stress testing + fallback verification in CI (in progress)
+2. Diagnostics/analysis
+   - Spectra/structure functions, flux budgets, entrainment/mixing reports (pending)
+3. Non-ideal MHD validation
+   - Resistive + Hall/ambipolar/hyper-resistive test cases (pending)
+4. SN physics fidelity
+   - EOS tables and neutrino source term upgrades (pending)
+5. AMR
+   - Real AMR (error indicators, multi-rank) beyond static nested refinement (pending)
 
 ## Completed highlights
 
-- SRHD/RMHD/GRHD/GRMHD core with recon/riemann switches, GLM, HLLD full option.
+- SRHD/RMHD/GRHD/GRMHD core with recon/riemann switches, GLM cleaning.
 - Israel–Stewart dissipation (IMEX relaxation + advection).
-- Two-temperature, cooling/heating, resistive RMHD, passive tracers.
+- Two-temperature, cooling/heating, resistive RMHD hooks, passive tracers.
 - H/He nonequilibrium ion chemistry with temperature coupling.
 - SN-lite core: gravity, heating/cooling, gamma override, composition passives, basic test cases.
 - SN-lite upgrades: monopole gravity + gain-region heating/cooling profiles.
-- Non-ideal MHD microphysics (Hall, ambipolar, hyper-resistive), radiation coupling, kinetic heating models.
+- Non-ideal MHD microphysics hooks (Hall, ambipolar, hyper-resistive), radiation coupling, kinetic heating models.
 - Diagnostics/analysis tools + smoke suites.
 
 ## Notes
 
-- Keep commit messages referencing this roadmap file when updating progress.
+- HLLD exists but is currently approximate; full HLLD and validation are being implemented now.
+- Static nested refinement exists (single-rank); true AMR is not implemented yet.
 - Diagnostics thresholds tightened (divB rel default 100, SN eff default 5).
-- TODO: add GPU backends and stronger scaling optimizations.
 - GPU backend (post-processing tools) now supports optional CuPy acceleration.
-- TODO: improve RMHD primitive recovery robustness + diagnostics expansions (cocoon/mixing/shell fluxes).

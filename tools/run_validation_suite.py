@@ -13,7 +13,8 @@ STEPS = [
     ("restart", ["python", "tools/validate_restart.py"]),
     ("sn", ["python", "tools/run_sn_tests.py"]),
     ("eos", ["python", "tools/run_eos_smoke.py"]),
-    ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "200"]),
+    ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "200",
+                       "--regimes", "mild,relativistic,magnetized,cold,hot"]),
 ]
 
 
@@ -35,7 +36,8 @@ def main():
             ("smoke", ["python", "tools/run_smoke_suite.py"]),
             ("sn", ["python", "tools/run_sn_tests.py"]),
             ("eos", ["python", "tools/run_eos_smoke.py"]),
-            ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "50"]),
+            ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "50",
+                               "--regimes", "mild,relativistic,magnetized"]),
         ]
 
     for name, cmd in steps:
