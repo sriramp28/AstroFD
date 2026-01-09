@@ -71,6 +71,16 @@ particularly important for jet and SN-lite studies, where physical
 uncertainties are large and sensitivity to numerical choices can be
 substantial.
 
+\subsection{Related Work and Positioning}
+AstroFD is positioned as a modular research code emphasizing controlled
+comparisons across physics closures and numerical options. In contrast to
+production GRMHD codes such as HARM and ECHO \\cite{gammie2003, delzanna2007},
+AstroFD prioritizes transparency and configurability over high-fidelity
+transport or dynamic spacetime evolution. Its design follows established
+finite-volume practice in SRHD/RMHD \\cite{marti1999, komissarov1999} while
+providing explicit hooks for dissipation, chemistry, and SN-lite source
+terms in a single framework.
+
 \section{Notation and Variables}
 We use units with $c = 1$ and metric signature $(-,+,+,+)$. Greek indices
 represent spacetime components and Latin indices represent spatial
@@ -106,6 +116,33 @@ $q^\mu$ & heat flux \\
 \end{tabular}
 \caption{Notation used in the governing equations.}
 \label{tab:notation}
+\end{table}
+
+\section{Model Assumptions and Scope}
+Table \\ref{tab:model-assumptions} summarizes key assumptions across
+physics modules to clarify applicability and limitations.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{l p{0.7\linewidth}}
+\hline
+Module & Assumptions and Scope \\
+\hline
+SRHD/RMHD & Ideal-gas EOS; single-fluid; flat spacetime for SRHD/RMHD. \\
+GRHD/GRMHD & Fixed analytic metric; no Einstein evolution; Valencia form. \\
+GLM Cleaning & Hyperbolic/parabolic cleaning; no constrained transport. \\
+Dissipation & Israel--Stewart relaxation with user-specified coefficients. \\
+Two-Temperature & Single relaxation time; coarse-grained coupling. \\
+Chemistry & Minimal H/He network; no metals or molecules. \\
+Resistive/Non-Ideal & Explicit source corrections; may be stiff. \\
+SN-lite Gravity & Newtonian point-mass or monopole potential. \\
+SN-lite Heating & Parametric gain profiles; no transport solver. \\
+Lightbulb Neutrinos & Simplified attenuation and cooling laws. \\
+Radiation Coupling & Relaxation to imposed $T_{\rm rad}$. \\
+\hline
+\end{tabular}
+\caption{Summary of assumptions and model scope.}
+\label{tab:model-assumptions}
 \end{table}
 
 \section{Governing Equations}
