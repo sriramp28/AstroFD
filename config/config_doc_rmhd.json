@@ -5,13 +5,13 @@
   "Lx": 1.0,
   "Ly": 1.0,
   "Lz": 1.0,
-  "T_END": 0.06,
+  "T_END": 0.05,
   "OUT_EVERY": 8,
   "PRINT_EVERY": 5,
 
   "JET_RADIUS": 0.10,
   "JET_CENTER": [0.0, 0.5, 0.5],
-  "GAMMA_JET": 8.0,
+  "GAMMA_JET": 6.0,
   "ETA_RHO": 0.03,
   "P_EQ": 0.01,
   "SHEAR_THICK": 0.02,
@@ -34,17 +34,18 @@
   "NG": 2,
   "RECON": "ppm",
   "LIMITER": "mc",
-  "RIEMANN": "hllc",
+  "RIEMANN": "hlle",
   "RK_ORDER": 3,
   "DEBUG": false,
   "RESULTS_UNIQUE": true,
   "CHECKPOINT_EVERY": 0,
   "RESTART_PATH": null,
 
-  "PHYSICS": "hydro",
+  "PHYSICS": "rmhd",
 
-  "N_TRACERS": 1,
-  "TRACER_NAMES": ["jet"],
-  "TRACER_NOZZLE_VALUES": [1.0],
-  "TRACER_AMB_VALUES": [0.0]
+  "GLM_CH": 1.0,
+  "GLM_CP": 0.1,
+
+  "B_INIT": "toroidal",
+  "B0": 0.05
 }

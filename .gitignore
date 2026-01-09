@@ -29,6 +29,9 @@ diagnostics.csv
 *.out
 *.pdf
 
+# Temporary doc figure staging
+docs/figures_doc_*/
+
 # Mac
 .DS_Store
 

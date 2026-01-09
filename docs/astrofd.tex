@@ -433,8 +433,11 @@ lightbulb heating). These tests are automated in \texttt{tools/}.
 
 \section{Example Results}
 This section includes example figures and a compact diagnostics summary
-table generated from the latest validation run. The figures can be
-regenerated with \texttt{tools/make\_doc\_figures.py}.
+table generated from representative validation runs. The figures can be
+regenerated with \texttt{tools/make\_doc\_figures.py}. The results shown
+here use \texttt{config/config\_doc\_jet.json} (SRHD jet),
+\texttt{config/config\_doc\_rmhd.json} (RMHD jet), and
+\texttt{config/config\_doc\_sn.json} (SN-lite Sedov).
 
 \subsection{Jet Propagation Snapshot}
 \begin{figure}[ht]
@@ -466,6 +469,8 @@ regenerated with \texttt{tools/make\_doc\_figures.py}.
 
 \subsection{Diagnostics Summary Table}
 \input{figures/validation_summary.tex}
+Diagnostics reported as N/A indicate quantities not enabled for that
+configuration.
 
 \section{Discussion}\label{sec:discussion}
 AstroFD emphasizes transparent, modular physics and numerical methods to
