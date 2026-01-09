@@ -14,7 +14,7 @@ This file tracks the current plan and completion status so work can resume easil
 3. Non-ideal MHD validation
    - Resistive + Hall/ambipolar/hyper-resistive test cases (done)
 4. SN physics fidelity
-   - EOS tables and neutrino source term upgrades (in progress)
+   - EOS tables and neutrino source term upgrades (done)
 5. AMR
    - Real AMR (error indicators, multi-rank) beyond static nested refinement (in progress)
 
