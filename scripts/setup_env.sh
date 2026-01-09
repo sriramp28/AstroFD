@@ -30,8 +30,11 @@ export NUMBA_NUM_THREADS="${NUMBA_NUM_THREADS:-4}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-4}"
 export VECLIB_MAXIMUM_THREADS="${VECLIB_MAXIMUM_THREADS:-4}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-$PWD/.mplcache}"
 EOF
 chmod +x scripts/env.sh
 
+mkdir -p .mplcache
+
 echo "Environment ready at ${ENV_DIR}."
-echo "Source scripts/env.sh to apply thread settings."
+echo "Source scripts/env.sh to apply thread and Matplotlib cache settings."

@@ -58,6 +58,8 @@ scripts/setup_env.sh
 source scripts/env.sh
 ```
 
+`scripts/env.sh` also sets `MPLCONFIGDIR` to a local writable cache (`.mplcache`) to avoid Matplotlib font cache warnings.
+
 For optional CuPy support:
 
 ```bash
