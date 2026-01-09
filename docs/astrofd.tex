@@ -142,6 +142,10 @@ to faces, and compute fluxes using a chosen approximate Riemann solver.
 The formulation is standard and widely used for relativistic jet
 simulations, providing a consistent baseline for comparisons with MHD
 and GR extensions.
+\paragraph{Limitations and Assumptions.}
+SRHD assumes a single-fluid ideal-gas EOS and neglects magnetic stresses.
+All geometric source terms vanish in the flat-spacetime limit, so this
+model is most appropriate for jet tests and baseline convergence studies.
 
 \subsection{RMHD: Ideal MHD and GLM Cleaning}
 Ideal RMHD satisfies
@@ -166,6 +170,10 @@ in finite-volume methods. It introduces a damped cleaning wave that
 propagates divergence errors out of the domain without explicitly
 constraining the magnetic field, and is compatible with the Riemann
 solvers used here.
+\paragraph{Limitations and Assumptions.}
+AstroFD uses ideal RMHD with GLM cleaning and does not enforce a
+constrained-transport update. Magnetic reconnection is therefore
+numerically controlled unless resistive/non-ideal terms are enabled.
 
 \subsection{GRHD/GRMHD: Valencia Formulation}
 For fixed backgrounds, we adopt a 3+1 split with lapse $\alpha$, shift
@@ -184,6 +192,10 @@ AstroFD assumes a fixed spacetime and does not evolve the Einstein
 equations. This approximation is appropriate for jet propagation in
 prescribed compact-object metrics and for test problems that emphasize
 hydrodynamic and magnetic dynamics over spacetime evolution.
+\paragraph{Limitations and Assumptions.}
+The spacetime is static and analytic; dynamic spacetime evolution is out
+of scope. Metric derivatives are computed analytically and inserted as
+source terms, which is appropriate for fixed-background tests.
 
 \subsubsection{Valencia Fluxes and Sources}
 The Valencia formulation expresses the GRHD/GRMHD system as
@@ -228,6 +240,10 @@ These terms are applied as local source updates with configurable
 relaxation times and coefficients. The intent is to provide a causal,
 hyperbolic extension of Navier--Stokes suitable for relativistic flows,
 while keeping the implementation modular for numerical experimentation.
+\paragraph{Limitations and Assumptions.}
+Transport coefficients are user-specified and spatially uniform unless
+encoded through source terms. The model is intended for exploratory
+studies rather than calibrated microphysical viscosity.
 
 \subsection{Two-Temperature Relaxation}
 Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
@@ -239,6 +255,10 @@ This closure is useful for plasmas where electron and ion temperatures
 remain out of equilibrium on dynamical timescales. AstroFD uses a
 relaxation-time model that can be tuned to capture rapid coupling or
 nearly decoupled limits.
+\paragraph{Limitations and Assumptions.}
+The two-temperature model uses a single relaxation timescale and does
+not resolve kinetic-scale energy exchange. It is best interpreted as a
+coarse-grained closure for parametric studies.
 
 \subsection{H/He Non-Equilibrium Chemistry}
 Species mass fractions $X_s$ satisfy
@@ -251,6 +271,10 @@ We track a minimal H/He network to capture ionization energy exchange and
 composition evolution without the cost of a full chemical solver. The
 network is intended for qualitative studies and controlled comparisons
 with analytic expectations rather than high-fidelity astrochemistry.
+\paragraph{Limitations and Assumptions.}
+The chemistry network is intentionally minimal and omits molecular
+species and metal cooling. Rate coefficients are simplified fits and
+should be interpreted as illustrative rather than definitive.
 
 \subsection{Passive Tracers}
 Passive tracers $C_k$ obey
@@ -271,6 +295,9 @@ These terms are implemented as additive source corrections, providing a
 lightweight mechanism to probe reconnection and drift physics without
 introducing full kinetic models. Because they can introduce stiffness,
 their use is intended primarily for targeted experiments and validation.
+\paragraph{Limitations and Assumptions.}
+Non-ideal terms are applied explicitly and can be stiff; stability is
+parameter-dependent and may require small timesteps or subcycling.
 
 \subsection{SN-lite Gravity}
 Newtonian gravity is applied as a source term with
@@ -283,6 +310,10 @@ The gravity model is Newtonian and used primarily for core-collapse-like
 tests and parameter studies. For monopole gravity, the enclosed mass
 profile can be computed from the density field and updated at a user-
 specified cadence.
+\paragraph{Limitations and Assumptions.}
+The gravity model neglects relativistic corrections and assumes a static
+potential. It is intended for SN-lite experiments and not precision
+core-collapse modeling.
 
 \subsection{SN-lite Gain Heating/Cooling}
 The gain model applies pressure updates
@@ -303,6 +334,10 @@ These gain-region prescriptions are intended to capture qualitative
 heating behavior in the gain layer without detailed neutrino transport.
 The model parameters are configurable and can be chosen to match
 published lightbulb or gain-region setups.
+\paragraph{Limitations and Assumptions.}
+Heating and cooling are parameterized and spatially prescribed; no
+neutrino transport is solved. Results should therefore be interpreted as
+parametric sensitivity studies rather than predictive models.
 
 \subsection{SN-lite Neutrino Lightbulb}
 The lightbulb model applies a heating/cooling term using
@@ -317,6 +352,9 @@ This lightbulb model provides a controllable energy deposition profile,
 allowing systematic studies of shock revival thresholds and sensitivity
 to heating parameters. It is not a substitute for full transport, but
 is appropriate for controlled parametric exploration.
+\paragraph{Limitations and Assumptions.}
+The lightbulb model uses simplified attenuation and cooling laws and is
+not a replacement for multi-group neutrino transport.
 
 \subsection{Radiation--Plasma Coupling}
 Optional radiation coupling relaxes the gas temperature toward $T_{\rm rad}$:
@@ -328,6 +366,9 @@ The coupling term is intentionally simple, intended to represent a
 relaxation toward an imposed radiation temperature. It can be used to
 study qualitative effects of radiative cooling/heating in jet or SN-lite
 contexts without the overhead of radiative transfer.
+\paragraph{Limitations and Assumptions.}
+This relaxation does not solve radiation transport and assumes a single
+imposed $T_{\\rm rad}$. It should be viewed as a qualitative coupling term.
 
 \section{Numerical Methods}
 \subsection{Overview}
@@ -402,6 +443,12 @@ state. RMHD recovery uses iterative inversion with fallback strategies
 The recovery step is a common source of robustness issues in RMHD; the
 code therefore applies multiple fallback paths and safety floors to
 ensure physically admissible primitives.
+\paragraph{Related Work.}
+The numerical strategy follows common relativistic FV practice and is
+compatible with methods used in PLUTO, HARM, and ECHO
+\\cite{mignone2007, gammie2003, delzanna2007}. AstroFD emphasizes modular
+comparisons between reconstruction and solver choices within a single
+code base.
 
 \subsection{Floors, Caps, and Stability Controls}
 Density and pressure floors enforce positivity. Velocity caps limit $v$
@@ -440,6 +487,10 @@ Diagnostics are designed to capture both numerical health (e.g., divB
 levels, maximum Lorentz factor) and physically meaningful metrics (e.g.,
 gain mass and heating efficiency). These outputs facilitate rapid
 comparison across parameter studies and validation runs.
+\paragraph{Related Work.}
+Diagnostics are inspired by common jet and SN-lite metrics used in
+parameter surveys, emphasizing reproducibility and rapid comparison of
+model choices \\cite{janka2012}.
 
 \section{Verification and Validation}
 We track qualitative stability and quantitative thresholds in validation
@@ -461,6 +512,10 @@ Validation is ongoing and intended to support quantitative comparisons
 across solvers and reconstructions. The current suite provides regression
 coverage and sanity checks; future work will extend convergence studies
 and standardized benchmark comparisons.
+\paragraph{Related Work.}
+Planned convergence studies and benchmark coverage align with standard
+test suites used across relativistic hydro and MHD codes
+\\cite{marti1999, miyoshi2005, font2008}.
 
 \section{Configuration and Reproducibility}
 All physics and numerics options are set through JSON configuration
