@@ -163,8 +163,9 @@ common across configurations.
 
 ### Adaptivity
 
-- `ADAPTIVITY_ENABLED`: enable nested refinement (single-rank).
+- `ADAPTIVITY_ENABLED`: enable nested refinement (single-rank or MPI x-slab).
 - `ADAPTIVITY_MODE`: `nested_static`, `nested_dynamic`, `nested_static_mpi`, `nested_dynamic_mpi`.
+- `nested_dynamic_mpi` computes a global refine box via MPI reductions and refines only ranks that intersect it.
 - `ADAPTIVITY_REFINEMENT`: integer refinement factor (>= 2).
 - `ADAPTIVITY_REGION`: `[xlo,xhi,ylo,yhi,zlo,zhi]` (static mode).
 - `ADAPTIVITY_FIELD`: field used for dynamic refinement (`rho` or `p`).

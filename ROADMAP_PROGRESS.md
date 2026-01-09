@@ -16,7 +16,7 @@ This file tracks the current plan and completion status so work can resume easil
 4. SN physics fidelity
    - EOS tables and neutrino source term upgrades (done)
 5. AMR
-   - Real AMR (error indicators, multi-rank) beyond static nested refinement (in progress; MPI local refinement now supported)
+   - Real AMR (error indicators, multi-rank) beyond static nested refinement (in progress; MPI global dynamic nested refinement now supported)
 
 ## Completed highlights
 
@@ -32,6 +32,6 @@ This file tracks the current plan and completion status so work can resume easil
 ## Notes
 
 - HLLD exists but is currently approximate; full HLLD and validation are being implemented now.
-- Static nested refinement exists (single-rank); true AMR is not implemented yet.
+- Static nested refinement exists (single-rank); MPI supports global dynamic nested boxes, but full patch-based AMR is not implemented yet.
 - Diagnostics thresholds tightened (divB rel default 100, SN eff default 5).
 - GPU backend (post-processing tools) now supports optional CuPy acceleration.

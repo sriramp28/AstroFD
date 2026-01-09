@@ -105,6 +105,62 @@ def build_refine_info_local(cfg, dx, dy, dz, ng, nx_loc, ny, nz, offs_x):
     )
 
 
+def build_refine_info_local_from_box(cfg, dx, dy, dz, ng, nx_loc, ny, nz, offs_x, box_global):
+    if box_global is None:
+        return None
+    refine = int(cfg.get("ADAPTIVITY_REFINEMENT", 2))
+    if refine < 2:
+        raise ValueError("ADAPTIVITY_REFINEMENT must be >= 2")
+
+    i0g, i1g, j0g, j1g, k0g, k1g = [int(v) for v in box_global]
+    i0g = max(0, min(cfg["NX"] - 1, i0g))
+    i1g = max(0, min(cfg["NX"] - 1, i1g))
+    j0g = max(0, min(ny - 1, j0g))
+    j1g = max(0, min(ny - 1, j1g))
+    k0g = max(0, min(nz - 1, k0g))
+    k1g = max(0, min(nz - 1, k1g))
+    if i1g < i0g or j1g < j0g or k1g < k0g:
+        return None
+
+    i0 = i0g - offs_x
+    i1 = i1g - offs_x
+    if i1 < 0 or i0 >= nx_loc:
+        return None
+    i0 = max(0, i0)
+    i1 = min(nx_loc - 1, i1)
+    j0 = j0g
+    j1 = j1g
+    k0 = k0g
+    k1 = k1g
+    if i1 < i0 or j1 < j0 or k1 < k0:
+        return None
+
+    i0a = i0 + ng
+    i1a = i1 + ng
+    j0a = j0 + ng
+    j1a = j1 + ng
+    k0a = k0 + ng
+    k1a = k1 + ng
+
+    nx_f = (i1a - i0a + 1) * refine
+    ny_f = (j1a - j0a + 1) * refine
+    nz_f = (k1a - k0a + 1) * refine
+    dx_f, dy_f, dz_f = dx / refine, dy / refine, dz / refine
+    x0_f = (i0a - ng + offs_x) * dx
+    y0_f = (j0a - ng) * dy
+    z0_f = (k0a - ng) * dz
+
+    return dict(
+        refine=refine,
+        box=(i0a, i1a, j0a, j1a, k0a, k1a),
+        fine_shape=(nx_f, ny_f, nz_f),
+        fine_spacing=(dx_f, dy_f, dz_f),
+        fine_origin=(x0_f, y0_f, z0_f),
+        offs_x=offs_x,
+        box_global=(i0g, i1g, j0g, j1g, k0g, k1g),
+    )
+
+
 def _field_index(field):
     if isinstance(field, (int, np.integer)):
         return int(field)
@@ -203,6 +259,20 @@ def build_dynamic_refine_info_local(pr, cfg, dx, dy, dz, ng, nx_loc, ny, nz, off
     if prev_info and prev_info.get("box") == info.get("box"):
         return prev_info, False
     return info, True
+
+
+def estimate_dynamic_box_global(pr, cfg, dx, dy, dz, ng, offs_x):
+    box = _estimate_dynamic_region(pr, cfg, dx, dy, dz, ng)
+    if box is None:
+        return None
+    i0, i1, j0, j1, k0, k1 = box
+    i0g = (i0 - ng) + offs_x
+    i1g = (i1 - ng) + offs_x
+    j0g = (j0 - ng)
+    j1g = (j1 - ng)
+    k0g = (k0 - ng)
+    k1g = (k1 - ng)
+    return (i0g, i1g, j0g, j1g, k0g, k1g)
 
 
 def _trilinear_sample(pr, ic, jc, kc):

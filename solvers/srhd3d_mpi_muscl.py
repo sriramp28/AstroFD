@@ -131,6 +131,27 @@ def decompose_x(nx_glob, comm):
     for r in range(1,size): offsets[r] = offsets[r-1] + counts[r-1]
     return counts[rank], offsets[rank], counts, offsets
 
+
+def global_dynamic_box(pr, cfg, dx, dy, dz, ng, offs_x, comm):
+    box_local = adaptivity.estimate_dynamic_box_global(pr, cfg, dx, dy, dz, ng, offs_x)
+    if box_local is None:
+        count = 0
+        mins = np.array([np.iinfo(np.int64).max] * 3, dtype=np.int64)
+        maxs = np.array([np.iinfo(np.int64).min] * 3, dtype=np.int64)
+    else:
+        i0g, i1g, j0g, j1g, k0g, k1g = box_local
+        count = 1
+        mins = np.array([i0g, j0g, k0g], dtype=np.int64)
+        maxs = np.array([i1g, j1g, k1g], dtype=np.int64)
+    count_all = comm.allreduce(count, op=MPI.SUM)
+    if count_all == 0:
+        return None
+    mins_all = comm.allreduce(mins, op=MPI.MIN)
+    maxs_all = comm.allreduce(maxs, op=MPI.MAX)
+    return (int(mins_all[0]), int(maxs_all[0]),
+            int(mins_all[1]), int(maxs_all[1]),
+            int(mins_all[2]), int(maxs_all[2]))
+
 # ------------------------
 # Blocking halo exchange using Sendrecv (robust + simple)
 # ------------------------
@@ -489,9 +510,13 @@ def main():
         elif ADAPTIVITY_MODE in ("nested_static",):
             fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
         elif ADAPTIVITY_MODE in ("nested_dynamic_mpi",):
-            fine_info, _ = adaptivity.build_dynamic_refine_info_local(
-                pr, settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank]
-            )
+            box_global = global_dynamic_box(pr, settings, dx, dy, dz, NG, offs[rank], comm)
+            if box_global is None:
+                fine_info = adaptivity.build_refine_info_local(settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank])
+            else:
+                fine_info = adaptivity.build_refine_info_local_from_box(
+                    settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank], box_global
+                )
         else:
             fine_info = adaptivity.build_refine_info_local(settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank])
 
@@ -573,29 +598,51 @@ def main():
         pr, menc, r_edges = apply_sources(pr, dt, dx, dy, dz, offs[rank], NG, t, step, menc, r_edges, comm)
 
         # nested refinement update (single-rank)
-        if ADAPTIVITY_ENABLED and pr_f is not None and ADAPTIVITY_MODE in ("nested_dynamic", "nested_dynamic_mpi"):
+        if ADAPTIVITY_ENABLED and ADAPTIVITY_MODE in ("nested_dynamic", "nested_dynamic_mpi"):
             if ADAPTIVITY_UPDATE_EVERY > 0 and (step % ADAPTIVITY_UPDATE_EVERY == 0):
                 if ADAPTIVITY_MODE == "nested_dynamic":
                     new_info, changed = adaptivity.build_dynamic_refine_info(
                         pr, settings, dx, dy, dz, NG, NX, NY, NZ, fine_info
                     )
                 else:
-                    new_info, changed = adaptivity.build_dynamic_refine_info_local(
-                        pr, settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank], fine_info
-                    )
-                if changed and new_info is not None:
-                    fine_info = new_info
-                    nx_f, ny_f, nz_f = fine_info["fine_shape"]
-                    pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
-                    adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
-                    if ADAPTIVITY_SUBCYCLES is None:
-                        fine_subcycles = int(fine_info["refine"])
+                    box_global = global_dynamic_box(pr, settings, dx, dy, dz, NG, offs[rank], comm)
+                    if box_global is None:
+                        new_info = adaptivity.build_refine_info_local(
+                            settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank]
+                        )
                     else:
-                        fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
-                    if fine_subcycles < 1:
-                        fine_subcycles = 1
+                        new_info = adaptivity.build_refine_info_local_from_box(
+                            settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank], box_global
+                        )
+                    if fine_info is None and new_info is not None:
+                        changed = True
+                    elif fine_info is not None and new_info is None:
+                        changed = True
+                    elif fine_info is not None and new_info is not None:
+                        changed = (new_info.get("box_global") != fine_info.get("box_global") or
+                                   new_info.get("box") != fine_info.get("box"))
+                    else:
+                        changed = False
+                if changed:
+                    fine_info = new_info
+                    if fine_info is None:
+                        pr_f = None
+                        fine_subcycles = None
+                    else:
+                        nx_f, ny_f, nz_f = fine_info["fine_shape"]
+                        pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
+                        adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
+                        if ADAPTIVITY_SUBCYCLES is None:
+                            fine_subcycles = int(fine_info["refine"])
+                        else:
+                            fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
+                        if fine_subcycles < 1:
+                            fine_subcycles = 1
                     if rank == 0:
-                        print(f"[adaptivity] updated region box={fine_info['box']}", flush=True)
+                        if fine_info is None:
+                            print("[adaptivity] updated region box=None", flush=True)
+                        else:
+                            print(f"[adaptivity] updated region box={fine_info['box']}", flush=True)
 
         if ADAPTIVITY_ENABLED and pr_f is not None:
             dx_f, dy_f, dz_f = fine_info["fine_spacing"]
