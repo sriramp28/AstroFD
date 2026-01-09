@@ -6,8 +6,8 @@
   "Ly": 1.0,
   "Lz": 1.0,
   "T_END": 0.05,
-  "OUT_EVERY": 8,
-  "PRINT_EVERY": 5,
+  "OUT_EVERY": 1,
+  "PRINT_EVERY": 1,
 
   "JET_RADIUS": 0.10,
   "JET_CENTER": [0.0, 0.5, 0.5],
