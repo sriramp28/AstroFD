@@ -49,6 +49,62 @@ def build_refine_info(cfg, dx, dy, dz, ng, nx, ny, nz):
     )
 
 
+def build_refine_info_local(cfg, dx, dy, dz, ng, nx_loc, ny, nz, offs_x):
+    region = cfg.get("ADAPTIVITY_REGION")
+    if region is None:
+        region = _default_region(cfg["Lx"], cfg["Ly"], cfg["Lz"])
+    if not (isinstance(region, (list, tuple)) and len(region) == 6):
+        raise ValueError("ADAPTIVITY_REGION must be [xlo,xhi,ylo,yhi,zlo,zhi]")
+    refine = int(cfg.get("ADAPTIVITY_REFINEMENT", 2))
+    if refine < 2:
+        raise ValueError("ADAPTIVITY_REFINEMENT must be >= 2")
+
+    xlo, xhi, ylo, yhi, zlo, zhi = [float(v) for v in region]
+    if not (0.0 <= xlo < xhi <= cfg["Lx"] and 0.0 <= ylo < yhi <= cfg["Ly"] and 0.0 <= zlo < zhi <= cfg["Lz"]):
+        raise ValueError("ADAPTIVITY_REGION must lie within domain bounds")
+
+    i0g = max(0, int(math.floor(xlo / dx + 0.5)))
+    i1g = min(cfg["NX"] - 1, int(math.floor(xhi / dx - 0.5)))
+    j0g = max(0, int(math.floor(ylo / dy + 0.5)))
+    j1g = min(ny - 1, int(math.floor(yhi / dy - 0.5)))
+    k0g = max(0, int(math.floor(zlo / dz + 0.5)))
+    k1g = min(nz - 1, int(math.floor(zhi / dz - 0.5)))
+
+    # map global -> local slab indices
+    i0 = i0g - offs_x
+    i1 = i1g - offs_x
+    if i1 < 0 or i0 >= nx_loc:
+        return None
+    i0 = max(0, i0); i1 = min(nx_loc - 1, i1)
+    if i1 < i0 or j1g < j0g or k1g < k0g:
+        return None
+
+    # shift to array indices with ghosts
+    i0a = i0 + ng
+    i1a = i1 + ng
+    j0a = j0g + ng
+    j1a = j1g + ng
+    k0a = k0g + ng
+    k1a = k1g + ng
+
+    nx_f = (i1a - i0a + 1) * refine
+    ny_f = (j1a - j0a + 1) * refine
+    nz_f = (k1a - k0a + 1) * refine
+    dx_f, dy_f, dz_f = dx / refine, dy / refine, dz / refine
+    x0_f = (i0a - ng + offs_x) * dx
+    y0_f = (j0a - ng) * dy
+    z0_f = (k0a - ng) * dz
+
+    return dict(
+        refine=refine,
+        box=(i0a, i1a, j0a, j1a, k0a, k1a),
+        fine_shape=(nx_f, ny_f, nz_f),
+        fine_spacing=(dx_f, dy_f, dz_f),
+        fine_origin=(x0_f, y0_f, z0_f),
+        offs_x=offs_x,
+    )
+
+
 def _field_index(field):
     if isinstance(field, (int, np.integer)):
         return int(field)
@@ -121,6 +177,29 @@ def build_dynamic_refine_info(pr, cfg, dx, dy, dz, ng, nx, ny, nz, prev_info=Non
     cfg_tmp["ADAPTIVITY_REGION"] = region
     info = build_refine_info(cfg_tmp, dx, dy, dz, ng, nx, ny, nz)
 
+    if prev_info and prev_info.get("box") == info.get("box"):
+        return prev_info, False
+    return info, True
+
+
+def build_dynamic_refine_info_local(pr, cfg, dx, dy, dz, ng, nx_loc, ny, nz, offs_x, prev_info=None):
+    box = _estimate_dynamic_region(pr, cfg, dx, dy, dz, ng)
+    if box is None:
+        return prev_info, False
+
+    i0, i1, j0, j1, k0, k1 = box
+    xlo = (i0 - ng + offs_x) * dx
+    xhi = (i1 - ng + 1 + offs_x) * dx
+    ylo = (j0 - ng) * dy
+    yhi = (j1 - ng + 1) * dy
+    zlo = (k0 - ng) * dz
+    zhi = (k1 - ng + 1) * dz
+    region = [xlo, xhi, ylo, yhi, zlo, zhi]
+    cfg_tmp = dict(cfg)
+    cfg_tmp["ADAPTIVITY_REGION"] = region
+    info = build_refine_info_local(cfg_tmp, dx, dy, dz, ng, nx_loc, ny, nz, offs_x)
+    if info is None:
+        return prev_info, False
     if prev_info and prev_info.get("box") == info.get("box"):
         return prev_info, False
     return info, True

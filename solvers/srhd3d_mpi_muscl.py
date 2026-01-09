@@ -478,27 +478,35 @@ def main():
     pr_f = None
     fine_subcycles = None
     if ADAPTIVITY_ENABLED:
-        if size != 1:
-            raise RuntimeError("ADAPTIVITY_ENABLED currently requires a single MPI rank.")
-        if ADAPTIVITY_MODE not in ("nested_static", "nested_dynamic"):
-            raise RuntimeError("ADAPTIVITY_MODE must be 'nested_static' or 'nested_dynamic'.")
-        if ADAPTIVITY_MODE == "nested_dynamic":
+        if ADAPTIVITY_MODE not in ("nested_static", "nested_dynamic", "nested_static_mpi", "nested_dynamic_mpi"):
+            raise RuntimeError("ADAPTIVITY_MODE must be nested_static/nested_dynamic or *_mpi variants.")
+        if size != 1 and ADAPTIVITY_MODE in ("nested_static", "nested_dynamic"):
+            raise RuntimeError("ADAPTIVITY_MODE nested_static/nested_dynamic requires a single MPI rank.")
+        if ADAPTIVITY_MODE in ("nested_dynamic",):
             fine_info, _ = adaptivity.build_dynamic_refine_info(pr, settings, dx, dy, dz, NG, NX, NY, NZ)
             if fine_info is None:
                 fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
-        else:
+        elif ADAPTIVITY_MODE in ("nested_static",):
             fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
-        nx_f, ny_f, nz_f = fine_info["fine_shape"]
-        pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
-        adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
-        if ADAPTIVITY_SUBCYCLES is None:
-            fine_subcycles = int(fine_info["refine"])
+        elif ADAPTIVITY_MODE in ("nested_dynamic_mpi",):
+            fine_info, _ = adaptivity.build_dynamic_refine_info_local(
+                pr, settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank]
+            )
         else:
-            fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
-        if fine_subcycles < 1:
-            fine_subcycles = 1
-        if rank == 0:
-            print(f"[adaptivity] region box={fine_info['box']} subcycles={fine_subcycles}", flush=True)
+            fine_info = adaptivity.build_refine_info_local(settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank])
+
+        if fine_info is not None:
+            nx_f, ny_f, nz_f = fine_info["fine_shape"]
+            pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
+            adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
+            if ADAPTIVITY_SUBCYCLES is None:
+                fine_subcycles = int(fine_info["refine"])
+            else:
+                fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
+            if fine_subcycles < 1:
+                fine_subcycles = 1
+            if rank == 0:
+                print(f"[adaptivity] region box={fine_info['box']} subcycles={fine_subcycles}", flush=True)
 
     if not restart_path:
         # initial BCs
@@ -565,11 +573,16 @@ def main():
         pr, menc, r_edges = apply_sources(pr, dt, dx, dy, dz, offs[rank], NG, t, step, menc, r_edges, comm)
 
         # nested refinement update (single-rank)
-        if ADAPTIVITY_ENABLED and pr_f is not None and ADAPTIVITY_MODE == "nested_dynamic":
+        if ADAPTIVITY_ENABLED and pr_f is not None and ADAPTIVITY_MODE in ("nested_dynamic", "nested_dynamic_mpi"):
             if ADAPTIVITY_UPDATE_EVERY > 0 and (step % ADAPTIVITY_UPDATE_EVERY == 0):
-                new_info, changed = adaptivity.build_dynamic_refine_info(
-                    pr, settings, dx, dy, dz, NG, NX, NY, NZ, fine_info
-                )
+                if ADAPTIVITY_MODE == "nested_dynamic":
+                    new_info, changed = adaptivity.build_dynamic_refine_info(
+                        pr, settings, dx, dy, dz, NG, NX, NY, NZ, fine_info
+                    )
+                else:
+                    new_info, changed = adaptivity.build_dynamic_refine_info_local(
+                        pr, settings, dx, dy, dz, NG, nx_loc, NY, NZ, offs[rank], fine_info
+                    )
                 if changed and new_info is not None:
                     fine_info = new_info
                     nx_f, ny_f, nz_f = fine_info["fine_shape"]
