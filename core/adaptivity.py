@@ -49,6 +49,83 @@ def build_refine_info(cfg, dx, dy, dz, ng, nx, ny, nz):
     )
 
 
+def _field_index(field):
+    if isinstance(field, (int, np.integer)):
+        return int(field)
+    name = str(field).lower()
+    if name in ("rho", "density"):
+        return 0
+    if name in ("p", "pressure"):
+        return 4
+    return 0
+
+
+def _estimate_dynamic_region(pr, cfg, dx, dy, dz, ng):
+    thresh = cfg.get("ADAPTIVITY_GRAD_THRESHOLD", None)
+    buffer_cells = int(cfg.get("ADAPTIVITY_BUFFER", 2))
+    fidx = _field_index(cfg.get("ADAPTIVITY_FIELD", 0))
+
+    nx = pr.shape[1] - 2*ng
+    ny = pr.shape[2] - 2*ng
+    nz = pr.shape[3] - 2*ng
+    if nx <= 2 or ny <= 2 or nz <= 2:
+        return None
+
+    max_g = 0.0
+    box = None
+    for i in range(ng + 1, ng + nx - 1):
+        for j in range(ng + 1, ng + ny - 1):
+            for k in range(ng + 1, ng + nz - 1):
+                ddx = (pr[fidx, i+1, j, k] - pr[fidx, i-1, j, k]) / (2.0*dx)
+                ddy = (pr[fidx, i, j+1, k] - pr[fidx, i, j-1, k]) / (2.0*dy)
+                ddz = (pr[fidx, i, j, k+1] - pr[fidx, i, j, k-1]) / (2.0*dz)
+                g = math.sqrt(ddx*ddx + ddy*ddy + ddz*ddz)
+                if thresh is None:
+                    if g > max_g:
+                        max_g = g
+                        box = (i, i, j, j, k, k)
+                elif g > thresh:
+                    if box is None:
+                        box = (i, i, j, j, k, k)
+                    else:
+                        i0, i1, j0, j1, k0, k1 = box
+                        box = (min(i0, i), max(i1, i), min(j0, j), max(j1, j), min(k0, k), max(k1, k))
+
+    if box is None:
+        return None
+
+    i0, i1, j0, j1, k0, k1 = box
+    i0 = max(ng, i0 - buffer_cells)
+    j0 = max(ng, j0 - buffer_cells)
+    k0 = max(ng, k0 - buffer_cells)
+    i1 = min(ng + nx - 1, i1 + buffer_cells)
+    j1 = min(ng + ny - 1, j1 + buffer_cells)
+    k1 = min(ng + nz - 1, k1 + buffer_cells)
+    return (i0, i1, j0, j1, k0, k1)
+
+
+def build_dynamic_refine_info(pr, cfg, dx, dy, dz, ng, nx, ny, nz, prev_info=None):
+    box = _estimate_dynamic_region(pr, cfg, dx, dy, dz, ng)
+    if box is None:
+        return prev_info, False
+
+    i0, i1, j0, j1, k0, k1 = box
+    xlo = (i0 - ng) * dx
+    xhi = (i1 - ng + 1) * dx
+    ylo = (j0 - ng) * dy
+    yhi = (j1 - ng + 1) * dy
+    zlo = (k0 - ng) * dz
+    zhi = (k1 - ng + 1) * dz
+    region = [xlo, xhi, ylo, yhi, zlo, zhi]
+    cfg_tmp = dict(cfg)
+    cfg_tmp["ADAPTIVITY_REGION"] = region
+    info = build_refine_info(cfg_tmp, dx, dy, dz, ng, nx, ny, nz)
+
+    if prev_info and prev_info.get("box") == info.get("box"):
+        return prev_info, False
+    return info, True
+
+
 def _trilinear_sample(pr, ic, jc, kc):
     nx, ny, nz = pr.shape[1], pr.shape[2], pr.shape[3]
     i0 = int(math.floor(ic)); j0 = int(math.floor(jc)); k0 = int(math.floor(kc))

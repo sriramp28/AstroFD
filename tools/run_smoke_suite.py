@@ -17,6 +17,7 @@ CASES = [
     "config/config_chemistry_hot.json",
     "config/config_sn_lite.json",
     "config/config_adaptivity_smoke.json",
+    "config/config_adaptivity_dynamic.json",
 ]
 
 

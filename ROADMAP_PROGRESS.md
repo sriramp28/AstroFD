@@ -16,7 +16,7 @@ This file tracks the current plan and completion status so work can resume easil
 4. SN physics fidelity
    - EOS tables and neutrino source term upgrades (in progress)
 5. AMR
-   - Real AMR (error indicators, multi-rank) beyond static nested refinement (pending)
+   - Real AMR (error indicators, multi-rank) beyond static nested refinement (in progress)
 
 ## Completed highlights
 

@@ -102,6 +102,7 @@ BULK_ZETA = settings.get("BULK_ZETA", 0.0)
 ADAPTIVITY_ENABLED = bool(settings.get("ADAPTIVITY_ENABLED", False))
 ADAPTIVITY_MODE = str(settings.get("ADAPTIVITY_MODE", "nested_static")).lower()
 ADAPTIVITY_SUBCYCLES = settings.get("ADAPTIVITY_SUBCYCLES", None)
+ADAPTIVITY_UPDATE_EVERY = int(settings.get("ADAPTIVITY_UPDATE_EVERY", 10))
 HALO_EXCHANGE = str(settings.get("HALO_EXCHANGE", "blocking")).lower()
 N_TRACERS = int(settings.get("N_TRACERS", 0))
 TRACER_OFFSET = int(settings.get("TRACER_OFFSET", 5))
@@ -479,9 +480,14 @@ def main():
     if ADAPTIVITY_ENABLED:
         if size != 1:
             raise RuntimeError("ADAPTIVITY_ENABLED currently requires a single MPI rank.")
-        if ADAPTIVITY_MODE != "nested_static":
-            raise RuntimeError("ADAPTIVITY_MODE must be 'nested_static'.")
-        fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
+        if ADAPTIVITY_MODE not in ("nested_static", "nested_dynamic"):
+            raise RuntimeError("ADAPTIVITY_MODE must be 'nested_static' or 'nested_dynamic'.")
+        if ADAPTIVITY_MODE == "nested_dynamic":
+            fine_info, _ = adaptivity.build_dynamic_refine_info(pr, settings, dx, dy, dz, NG, NX, NY, NZ)
+            if fine_info is None:
+                fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
+        else:
+            fine_info = adaptivity.build_refine_info(settings, dx, dy, dz, NG, NX, NY, NZ)
         nx_f, ny_f, nz_f = fine_info["fine_shape"]
         pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
         adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
@@ -559,6 +565,25 @@ def main():
         pr, menc, r_edges = apply_sources(pr, dt, dx, dy, dz, offs[rank], NG, t, step, menc, r_edges, comm)
 
         # nested refinement update (single-rank)
+        if ADAPTIVITY_ENABLED and pr_f is not None and ADAPTIVITY_MODE == "nested_dynamic":
+            if ADAPTIVITY_UPDATE_EVERY > 0 and (step % ADAPTIVITY_UPDATE_EVERY == 0):
+                new_info, changed = adaptivity.build_dynamic_refine_info(
+                    pr, settings, dx, dy, dz, NG, NX, NY, NZ, fine_info
+                )
+                if changed and new_info is not None:
+                    fine_info = new_info
+                    nx_f, ny_f, nz_f = fine_info["fine_shape"]
+                    pr_f = np.zeros((pr.shape[0], nx_f + 2*NG, ny_f + 2*NG, nz_f + 2*NG), dtype=np.float64)
+                    adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
+                    if ADAPTIVITY_SUBCYCLES is None:
+                        fine_subcycles = int(fine_info["refine"])
+                    else:
+                        fine_subcycles = int(ADAPTIVITY_SUBCYCLES)
+                    if fine_subcycles < 1:
+                        fine_subcycles = 1
+                    if rank == 0:
+                        print(f"[adaptivity] updated region box={fine_info['box']}", flush=True)
+
         if ADAPTIVITY_ENABLED and pr_f is not None:
             dx_f, dy_f, dz_f = fine_info["fine_spacing"]
             dt_f = dt / float(fine_subcycles)

@@ -38,6 +38,10 @@ def load_settings():
         ADAPTIVITY_REFINEMENT=2,
         ADAPTIVITY_REGION=None,
         ADAPTIVITY_SUBCYCLES=None,
+        ADAPTIVITY_FIELD="rho",
+        ADAPTIVITY_GRAD_THRESHOLD=None,
+        ADAPTIVITY_BUFFER=2,
+        ADAPTIVITY_UPDATE_EVERY=10,
         # threading within ranks
         NUMBA_NUM_THREADS=None,
         OMP_NUM_THREADS=None,

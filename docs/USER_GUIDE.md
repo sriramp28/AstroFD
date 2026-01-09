@@ -161,6 +161,17 @@ common across configurations.
 - `NG`: ghost zones.
 - `P_MAX`, `V_MAX`: safety caps.
 
+### Adaptivity
+
+- `ADAPTIVITY_ENABLED`: enable nested refinement (single-rank).
+- `ADAPTIVITY_MODE`: `nested_static` or `nested_dynamic`.
+- `ADAPTIVITY_REFINEMENT`: integer refinement factor (>= 2).
+- `ADAPTIVITY_REGION`: `[xlo,xhi,ylo,yhi,zlo,zhi]` (static mode).
+- `ADAPTIVITY_FIELD`: field used for dynamic refinement (`rho` or `p`).
+- `ADAPTIVITY_GRAD_THRESHOLD`: gradient threshold for dynamic region selection.
+- `ADAPTIVITY_BUFFER`: buffer cells around detected gradients.
+- `ADAPTIVITY_UPDATE_EVERY`: update cadence for dynamic refinement.
+
 ### Physics Selection
 
 - `PHYSICS`: `hydro`, `rmhd`, `grhd`, `grmhd`, `sn`.
