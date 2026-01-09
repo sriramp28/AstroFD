@@ -110,6 +110,10 @@ def load_settings():
         GLM_CP=0.1,           # damping coefficient
         B_INIT="none",        # "none" | "poloidal" | "toroidal"
         B0=0.0,               # base magnetic field magnitude
+        RMHD_INIT="uniform",  # "uniform" | "riemann"
+        RMHD_RIEMANN_X0=0.5,
+        RMHD_RIEMANN_LEFT=None,
+        RMHD_RIEMANN_RIGHT=None,
         # GR placeholders
         GR_METRIC="minkowski",   # "minkowski" | "schwarzschild" | "kerr-schild"
         GR_MASS=1.0,

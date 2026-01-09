@@ -172,6 +172,10 @@ common across configurations.
 - `CHEMISTRY_ENABLED`: H/He ionization network.
 - `RESISTIVE_ENABLED`, `RESISTIVITY`: resistive RMHD.
 - `NONIDEAL_MHD_ENABLED`: Hall/ambipolar/hyper-resistive terms.
+- `RMHD_INIT`: `uniform` or `riemann` (1D RMHD shock-tube setup).
+- `RMHD_RIEMANN_X0`: split location in x for the Riemann problem.
+- `RMHD_RIEMANN_LEFT`, `RMHD_RIEMANN_RIGHT`: 9-component RMHD states
+  `[rho, vx, vy, vz, p, Bx, By, Bz, psi]`.
 
 Passive tracers:
 - `N_TRACERS`: number of passive scalars.

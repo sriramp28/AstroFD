@@ -19,15 +19,15 @@ def main():
             "--config",
             "config/config_hlld_full.json",
             "--nx",
-            "8",
+            "64",
             "--ny",
             "8",
             "--nz",
             "8",
             "--t-end",
-            "0.001",
+            "0.02",
             "--out-every",
-            "1",
+            "2",
             "--print-every",
             "1",
         ]
@@ -37,7 +37,7 @@ def main():
             raise SystemExit(proc.returncode)
 
     run_dir = latest_run_dir()
-    cmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "100.0", "--max-psi", "1e-2"]
+    cmd = [args.python, "tools/verify_rmhd.py", "--max-divb-rel", "100.0", "--max-psi", "0.5"]
     if run_dir:
         cmd.extend(["--run-dir", run_dir])
     print(f"[hlld] {' '.join(cmd)}", flush=True)

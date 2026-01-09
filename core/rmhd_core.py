@@ -12,7 +12,7 @@ GLM_CH = 1.0
 GLM_CP = 0.1
 LIMITER_ID = 0  # 0=mc, 1=minmod, 2=vanleer
 RECON_ID = 0    # 0=muscl, 1=ppm, 2=weno
-RIEMANN_ID = 0  # 0=hlle, 1=hlld-like
+RIEMANN_ID = 0  # 0=hlle, 1=hlld-like, 2=hlld_full
 SMALL = 1e-12
 RESISTIVE_ENABLED = False
 RESISTIVITY = 0.0
@@ -591,10 +591,14 @@ def hllc_hydro_flux_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
         return FR[:5] + sR*(Ust - UR[:5])
 
 @nb.njit(fastmath=True)
-def riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+def riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL, sR):
     if RIEMANN_ID == 2:
-        return hll_d_flux_dir(0, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
+        return hlld_flux_dir(0, primL[0], primL[1], primL[2], primL[3], primL[4], primL[5], primL[6], primL[7], primL[8],
+                             primR[0], primR[1], primR[2], primR[3], primR[4], primR[5], primR[6], primR[7], primR[8],
+                             UL, UR, FL, FR, sL, sR)
     if RIEMANN_ID == 1:
+        pL = primL[4]; pR = primR[4]
+        vL = primL[1]; vR = primR[1]
         hllc = hllc_hydro_flux_x(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
         out[0:5] = hllc
@@ -623,8 +627,10 @@ def hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vL, vR):
     return (pR - pL + SzL*(sL - vL) - SzR*(sR - vR)) / denom
 
 @nb.njit(fastmath=True)
-def hll_d_flux_dir(n, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
-    # Experimental RMHD HLLD (approximate). Falls back to HLLE on invalid states.
+def hlld_flux_dir(n, rhoL, vxL, vyL, vzL, pL, BxL, ByL, BzL, psiL,
+                  rhoR, vxR, vyR, vzR, pR, BxR, ByR, BzR, psiR,
+                  UL, UR, FL, FR, sL, sR):
+    # Full HLLD (RMHD) with robust fallbacks to HLLE.
     if sL >= 0.0:
         return FL
     if sR <= 0.0:
@@ -632,69 +638,76 @@ def hll_d_flux_dir(n, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
 
     # index mapping
     if n == 0:
-        vn = 1; vt1 = 2; vt2 = 3
-        bn = 5; bt1 = 6; bt2 = 7
+        vnL, vt1L, vt2L = vxL, vyL, vzL
+        vnR, vt1R, vt2R = vxR, vyR, vzR
+        BnL, Bt1L, Bt2L = BxL, ByL, BzL
+        BnR, Bt1R, Bt2R = BxR, ByR, BzR
     elif n == 1:
-        vn = 2; vt1 = 1; vt2 = 3
-        bn = 6; bt1 = 5; bt2 = 7
+        vnL, vt1L, vt2L = vyL, vxL, vzL
+        vnR, vt1R, vt2R = vyR, vxR, vzR
+        BnL, Bt1L, Bt2L = ByL, BxL, BzL
+        BnR, Bt1R, Bt2R = ByR, BxR, BzR
     else:
-        vn = 3; vt1 = 1; vt2 = 2
-        bn = 7; bt1 = 5; bt2 = 6
+        vnL, vt1L, vt2L = vzL, vxL, vyL
+        vnR, vt1R, vt2R = vzR, vxR, vyR
+        BnL, Bt1L, Bt2L = BzL, BxL, ByL
+        BnR, Bt1R, Bt2R = BzR, BxR, ByR
 
-    # Unpack primitives from fluxes (we don't have prim arrays here; infer from FL/FR using UL/UR).
-    # Use UL/UR as conserved and pL/pR for thermal pressure to construct approximate primitives.
-    # Approximate: use vL/vR for normal velocity and infer tangentials from flux ratios.
-    vL_n = vL
-    vR_n = vR
-    if UL[0] <= SMALL or UR[0] <= SMALL:
+    Bn = 0.5 * (BnL + BnR)
+    if abs(Bn) < 1e-10:
         return hlle(UL, UR, FL, FR, sL, sR)
 
-    # Reconstruct magnetic fields from fluxes: use Bn from UL/UR (stored in UL[5:8]).
-    BnL = UL[bn]; BnR = UR[bn]
-    Bt1L = UL[bt1]; Bt2L = UL[bt2]
-    Bt1R = UR[bt1]; Bt2R = UR[bt2]
-    Bn = 0.5*(BnL + BnR)
-    if abs(Bn) < 1e-8:
+    # HLL state
+    U_hll = (sR*UR - sL*UL + FL - FR) / (sR - sL + SMALL)
+    rhoh, vxh, vyh, vzh, ph, Bxh, Byh, Bzh, psih = cons_to_prim_rmhd(
+        U_hll[0], U_hll[1], U_hll[2], U_hll[3], U_hll[4], U_hll[5], U_hll[6], U_hll[7], U_hll[8]
+    )
+    if not (np.isfinite(rhoh) and np.isfinite(ph)):
         return hlle(UL, UR, FL, FR, sL, sR)
 
-    # Contact speed from HLLC
-    if n == 0:
-        sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
-    elif n == 1:
-        sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
-    else:
-        sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vL_n, vR_n)
+    pt_star = ph + 0.5*(Bxh*Bxh + Byh*Byh + Bzh*Bzh)
+    E_hll = U_hll[4] + U_hll[0]
+    sM = U_hll[1] / max(E_hll + pt_star, SMALL)
+    if sM <= -1.0 or sM >= 1.0:
+        return hlle(UL, UR, FL, FR, sL, sR)
 
-    DL = UL[0]; DR = UR[0]
-    DstarL = DL*(sL - vL_n)/(sL - sM + SMALL)
-    DstarR = DR*(sR - vR_n)/(sR - sM + SMALL)
+    # Left/right auxiliary quantities
+    v2L = vxL*vxL + vyL*vyL + vzL*vzL
+    v2R = vxR*vxR + vyR*vyR + vzR*vzR
+    if v2L >= V_MAX*V_MAX: v2L = V_MAX*V_MAX - 1e-14
+    if v2R >= V_MAX*V_MAX: v2R = V_MAX*V_MAX - 1e-14
+    WL = 1.0 / np.sqrt(1.0 - v2L)
+    WR = 1.0 / np.sqrt(1.0 - v2R)
+    hL = eos.enthalpy(rhoL, pL)
+    hR = eos.enthalpy(rhoR, pR)
+    rhohW2_L = rhoL * hL * WL * WL
+    rhohW2_R = rhoR * hR * WR * WR
+
+    DstarL = UL[0] * (sL - vnL) / (sL - sM + SMALL)
+    DstarR = UR[0] * (sR - vnR) / (sR - sM + SMALL)
     if DstarL <= SMALL or DstarR <= SMALL:
         return hlle(UL, UR, FL, FR, sL, sR)
 
-    # Tangential fields and velocities in star region
-    Bt1L_star = Bt1L*(sL - vL_n)/(sL - sM + SMALL)
-    Bt2L_star = Bt2L*(sL - vL_n)/(sL - sM + SMALL)
-    Bt1R_star = Bt1R*(sR - vR_n)/(sR - sM + SMALL)
-    Bt2R_star = Bt2R*(sR - vR_n)/(sR - sM + SMALL)
+    Bt1L_star = Bt1L * (sL - vnL) / (sL - sM + SMALL)
+    Bt2L_star = Bt2L * (sL - vnL) / (sL - sM + SMALL)
+    Bt1R_star = Bt1R * (sR - vnR) / (sR - sM + SMALL)
+    Bt2R_star = Bt2R * (sR - vnR) / (sR - sM + SMALL)
 
-    denomL = DL*(sL - vL_n) - Bn*Bn
-    denomR = DR*(sR - vR_n) - Bn*Bn
+    denomL = rhohW2_L*(sL - vnL) - Bn*Bn
+    denomR = rhohW2_R*(sR - vnR) - Bn*Bn
     if abs(denomL) < SMALL or abs(denomR) < SMALL:
         return hlle(UL, UR, FL, FR, sL, sR)
 
-    vt1L = UL[vt1] / max(DL, SMALL)
-    vt2L = UL[vt2] / max(DL, SMALL)
-    vt1R = UR[vt1] / max(DR, SMALL)
-    vt2R = UR[vt2] / max(DR, SMALL)
+    vt1L_star = vt1L - Bn*(Bt1L - Bt1L_star) / denomL
+    vt2L_star = vt2L - Bn*(Bt2L - Bt2L_star) / denomL
+    vt1R_star = vt1R - Bn*(Bt1R - Bt1R_star) / denomR
+    vt2R_star = vt2R - Bn*(Bt2R - Bt2R_star) / denomR
 
-    vt1L_star = vt1L - Bn*(Bt1L - Bt1L_star)/denomL
-    vt2L_star = vt2L - Bn*(Bt2L - Bt2L_star)/denomL
-    vt1R_star = vt1R - Bn*(Bt1R - Bt1R_star)/denomR
-    vt2R_star = vt2R - Bn*(Bt2R - Bt2R_star)/denomR
-
-    # Alfven speeds
-    sL_star = sM - abs(Bn)/np.sqrt(DstarL + SMALL)
-    sR_star = sM + abs(Bn)/np.sqrt(DstarR + SMALL)
+    # Alfvén speeds in the star region
+    cAL = abs(Bn) / np.sqrt(max(rhohW2_L + Bn*Bn, SMALL))
+    cAR = abs(Bn) / np.sqrt(max(rhohW2_R + Bn*Bn, SMALL))
+    sL_star = (sM - cAL) / (1.0 - sM*cAL + SMALL)
+    sR_star = (sM + cAR) / (1.0 + sM*cAR + SMALL)
 
     sqrtDL = np.sqrt(DstarL)
     sqrtDR = np.sqrt(DstarR)
@@ -704,21 +717,22 @@ def hll_d_flux_dir(n, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
     Bt1_starstar = (sqrtDL*Bt1R_star + sqrtDR*Bt1L_star + sgn*sqrtDL*sqrtDR*(vt1L_star - vt1R_star)) / (sqrtDL + sqrtDR + SMALL)
     Bt2_starstar = (sqrtDL*Bt2R_star + sqrtDR*Bt2L_star + sgn*sqrtDL*sqrtDR*(vt2L_star - vt2R_star)) / (sqrtDL + sqrtDR + SMALL)
 
-    # Build star primitives (approximate) and conserved states for flux construction.
-    def build_state(Dstar, vtn1, vtn2, Bt1s, Bt2s, psi):
-        rho = max(Dstar, SMALL)
+    def build_state(vt1, vt2, Bt1s, Bt2s, psi, side_is_left):
         if n == 0:
-            vx = sM; vy = vtn1; vz = vtn2; Bx = Bn; By = Bt1s; Bz = Bt2s
+            vx = sM; vy = vt1; vz = vt2; Bx = Bn; By = Bt1s; Bz = Bt2s
         elif n == 1:
-            vy = sM; vx = vtn1; vz = vtn2; By = Bn; Bx = Bt1s; Bz = Bt2s
+            vy = sM; vx = vt1; vz = vt2; By = Bn; Bx = Bt1s; Bz = Bt2s
         else:
-            vz = sM; vx = vtn1; vy = vtn2; Bz = Bn; Bx = Bt1s; By = Bt2s
-        p = pL if Dstar == DstarL else pR
-        return rho, vx, vy, vz, p, Bx, By, Bz, psi
+            vz = sM; vx = vt1; vy = vt2; Bz = Bn; Bx = Bt1s; By = Bt2s
+        pstar = pt_star - 0.5*(Bn*Bn + Bt1s*Bt1s + Bt2s*Bt2s)
+        if pstar < SMALL:
+            pstar = SMALL
+        rho = rhoL if side_is_left else rhoR
+        return rho, vx, vy, vz, pstar, Bx, By, Bz, psi
 
-    primL_star = build_state(DstarL, vt1L_star, vt2L_star, Bt1L_star, Bt2L_star, UL[8])
-    primR_star = build_state(DstarR, vt1R_star, vt2R_star, Bt1R_star, Bt2R_star, UR[8])
-    prim_starstar = build_state(0.5*(DstarL + DstarR), vt1_starstar, vt2_starstar, Bt1_starstar, Bt2_starstar, 0.5*(UL[8] + UR[8]))
+    primL_star = build_state(vt1L_star, vt2L_star, Bt1L_star, Bt2L_star, psiL, True)
+    primR_star = build_state(vt1R_star, vt2R_star, Bt1R_star, Bt2R_star, psiR, False)
+    prim_starstar = build_state(vt1_starstar, vt2_starstar, Bt1_starstar, Bt2_starstar, 0.5*(psiL + psiR), True)
 
     ULs = np.array(prim_to_cons_rmhd(*primL_star, GAMMA))
     URs = np.array(prim_to_cons_rmhd(*primR_star, GAMMA))
@@ -748,10 +762,14 @@ def hll_d_flux_dir(n, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
     return hlle(UL, UR, FL, FR, sL, sR)
 
 @nb.njit(fastmath=True)
-def riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+def riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL, sR):
     if RIEMANN_ID == 2:
-        return hll_d_flux_dir(1, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
+        return hlld_flux_dir(1, primL[0], primL[1], primL[2], primL[3], primL[4], primL[5], primL[6], primL[7], primL[8],
+                             primR[0], primR[1], primR[2], primR[3], primR[4], primR[5], primR[6], primR[7], primR[8],
+                             UL, UR, FL, FR, sL, sR)
     if RIEMANN_ID == 1:
+        pL = primL[4]; pR = primR[4]
+        vL = primL[2]; vR = primR[2]
         hllc = hllc_hydro_flux_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
         out[0:5] = hllc
@@ -759,10 +777,14 @@ def riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
     return hlle(UL, UR, FL, FR, sL, sR)
 
 @nb.njit(fastmath=True)
-def riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR):
+def riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL, sR):
     if RIEMANN_ID == 2:
-        return hll_d_flux_dir(2, UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
+        return hlld_flux_dir(2, primL[0], primL[1], primL[2], primL[3], primL[4], primL[5], primL[6], primL[7], primL[8],
+                             primR[0], primR[1], primR[2], primR[3], primR[4], primR[5], primR[6], primR[7], primR[8],
+                             UL, UR, FL, FR, sL, sR)
     if RIEMANN_ID == 1:
+        pL = primL[4]; pR = primR[4]
+        vL = primL[3]; vR = primR[3]
         hllc = hllc_hydro_flux_z(UL, UR, FL, FR, sL, sR, pL, pR, vL, vR)
         out = hlle(UL, UR, FL, FR, sL, sR)
         out[0:5] = hllc
@@ -811,27 +833,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vxL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vxR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
-                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
-                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
-                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
-                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
-                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
-                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
-                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
-                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
-                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                cfL = rmhd_fast_speed(rL, pL, vxL, vyL, vzL, BxL, ByL, BzL)
-                cfR = rmhd_fast_speed(rR, pR, vxR, vyR, vzR, BxR, ByR, BzR)
-                lmL, lpL = rmhd_eig_speeds(vxL, cfL)
-                lmR, lpR = rmhd_eig_speeds(vxR, cfR)
-                sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FxL = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxL = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL, sR)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_x(UL, UR, sL, sR, pL, pR, vxL, vxR)
                     if sM >= 0.0:
@@ -909,7 +913,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxR = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL2, sR2)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_x(UL, UR, sL2, sR2, pL, pR, vxL, vxR)
                     if sM >= 0.0:
@@ -992,7 +998,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vyL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vyR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyD = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL, sR)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_y(UL, UR, sL, sR, pL, pR, vyL, vyR)
                     if sM >= 0.0:
@@ -1069,7 +1077,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyU = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL2, sR2)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_y(UL, UR, sL2, sR2, pL, pR, vyL, vyR)
                     if sM >= 0.0:
@@ -1152,7 +1162,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vzL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vzR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzB = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL, sR)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_z(UL, UR, sL, sR, pL, pR, vzL, vzR)
                     if sM >= 0.0:
@@ -1229,7 +1241,9 @@ def compute_rhs_rmhd(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzF = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL2, sR2)
                 if RIEMANN_ID == 1:
                     sM = hllc_contact_speed_z(UL, UR, sL2, sR2, pL, pR, vzL, vzR)
                     if sM >= 0.0:
@@ -1335,7 +1349,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FxL = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxL = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1348,7 +1364,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxR = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FxR - FxL) / dx
 
@@ -1376,7 +1394,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vyL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vyR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyD = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1389,7 +1409,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyU = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FyU - FyD) / dy
 
@@ -1417,7 +1439,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vzL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vzR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzB = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1430,7 +1454,9 @@ def compute_rhs_ppm(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzF = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
 
@@ -1489,7 +1515,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 UR = np.array(prim_to_cons_rmhd(rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR,GAMMA))
                 FL = flux_rmhd_x(np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL]))
                 FR = flux_rmhd_x(np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR]))
-                FxL = riemann_flux_rmhd_x(UL, UR, FL, FR, sL, sR, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxL = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1502,7 +1530,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vxL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vxR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FxR = riemann_flux_rmhd_x(UL, UR, FL, FR, sL2, sR2, pL, pR, vxL, vxR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FxR = riemann_flux_rmhd_x(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FxR - FxL) / dx
 
@@ -1524,7 +1554,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vyL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vyR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FyD = riemann_flux_rmhd_y(UL, UR, FL, FR, sL, sR, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyD = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1537,7 +1569,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vyL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vyR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FyU = riemann_flux_rmhd_y(UL, UR, FL, FR, sL2, sR2, pL, pR, vyL, vyR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FyU = riemann_flux_rmhd_y(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FyU - FyD) / dy
 
@@ -1559,7 +1593,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 lmL, lpL = rmhd_eig_speeds(vzL, cfL)
                 lmR, lpR = rmhd_eig_speeds(vzR, cfR)
                 sL = min(lmL, lmR); sR = max(lpL, lpR)
-                FzB = riemann_flux_rmhd_z(UL, UR, FL, FR, sL, sR, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzB = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL, sR)
 
                 rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL = floor_prim_rmhd(qL2[0], qL2[1], qL2[2], qL2[3], qL2[4], qL2[5], qL2[6], qL2[7], qL2[8])
                 rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR = floor_prim_rmhd(qR2[0], qR2[1], qR2[2], qR2[3], qR2[4], qR2[5], qR2[6], qR2[7], qR2[8])
@@ -1572,7 +1608,9 @@ def compute_rhs_weno(pr, nx, ny, nz, dx, dy, dz):
                 lmL2, lpL2 = rmhd_eig_speeds(vzL, cfL2)
                 lmR2, lpR2 = rmhd_eig_speeds(vzR, cfR2)
                 sL2 = min(lmL2, lmR2); sR2 = max(lpL2, lpR2)
-                FzF = riemann_flux_rmhd_z(UL, UR, FL, FR, sL2, sR2, pL, pR, vzL, vzR)
+                primL = np.array([rL,vxL,vyL,vzL,pL,BxL,ByL,BzL,psiL])
+                primR = np.array([rR,vxR,vyR,vzR,pR,BxR,ByR,BzR,psiR])
+                FzF = riemann_flux_rmhd_z(primL, primR, UL, UR, FL, FR, sL2, sR2)
 
                 rhs[0:9, i, j, k] -= (FzF - FzB) / dz
 

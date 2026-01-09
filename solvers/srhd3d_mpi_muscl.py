@@ -265,6 +265,29 @@ def init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz):
         for ci, val in enumerate(SN_COMP_AMB_VALUES):
             pr[SN_COMP_OFFSET + ci, :, :, :] = val
 
+    if PHYSICS in ("rmhd", "grmhd"):
+        init = str(settings.get("RMHD_INIT", "uniform")).lower()
+        if init == "riemann":
+            x_split = float(settings.get("RMHD_RIEMANN_X0", 0.5 * Lx))
+            left = settings.get("RMHD_RIEMANN_LEFT", [1.0, 0.0, 0.0, 0.0, 1.0, 0.5, 1.0, 0.0, 0.0])
+            right = settings.get("RMHD_RIEMANN_RIGHT", [0.125, 0.0, 0.0, 0.0, 0.1, 0.5, -1.0, 0.0, 0.0])
+            if len(left) < 9:
+                left = list(left) + [0.0] * (9 - len(left))
+            if len(right) < 9:
+                right = list(right) + [0.0] * (9 - len(right))
+            for i in range(pr.shape[1]):
+                x = (x0 + (i - NG) + 0.5) * dx
+                vals = left if x < x_split else right
+                pr[0, i, :, :] = vals[0]
+                pr[1, i, :, :] = vals[1]
+                pr[2, i, :, :] = vals[2]
+                pr[3, i, :, :] = vals[3]
+                pr[4, i, :, :] = vals[4]
+                pr[5, i, :, :] = vals[5]
+                pr[6, i, :, :] = vals[6]
+                pr[7, i, :, :] = vals[7]
+                pr[8, i, :, :] = vals[8]
+
     if PHYSICS == "sn":
         init = str(settings.get("SN_INIT", "uniform")).lower()
         if init in ("sedov", "shock_sphere"):
