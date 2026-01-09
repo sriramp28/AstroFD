@@ -184,6 +184,10 @@ Passive tracers:
 Diagnostics for tracers:
 - `DIAG_COCOON_TRACER_IDX`, `DIAG_COCOON_TRACER_MIN`, `DIAG_COCOON_TRACER_MAX`.
 - `DIAG_MIXING_TRACER_IDX`.
+Additional diagnostics:
+- `DIAG_PLANE_ENABLED`, `DIAG_PLANE_X`: plane flux budgets (mass, momentum, energy).
+- `DIAG_SPECTRA_ENABLED`: 1D centerline spectra for ρ and v_x.
+- `DIAG_STRUCTURE_ENABLED`, `DIAG_STRUCTURE_MAX_LAG`: centerline structure functions.
 
 ### GR and Metric Controls
 

@@ -679,6 +679,23 @@ def main():
                     pr, dx, dy, dz, offs[rank], counts, comm, rank,
                     step, t, RUN_DIR, settings, NG, TRACER_OFFSET
                 )
+            if settings.get("DIAG_PLANE_ENABLED", False):
+                diagnostics.compute_plane_fluxes_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings,
+                    rmhd_core.prim_to_cons_rmhd if PHYSICS in ("rmhd", "grmhd") else srhd_core.prim_to_cons,
+                    NG, PHYSICS in ("rmhd", "grmhd")
+                )
+            if settings.get("DIAG_SPECTRA_ENABLED", False):
+                diagnostics.compute_spectra_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings, NG
+                )
+            if settings.get("DIAG_STRUCTURE_ENABLED", False):
+                diagnostics.compute_structure_and_write(
+                    pr, dx, dy, dz, offs[rank], counts, comm, rank,
+                    step, t, RUN_DIR, settings, NG
+                )
             if PERF_ENABLED:
                 perf_diag_accum += time.perf_counter() - diag_start
 

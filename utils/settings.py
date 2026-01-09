@@ -207,6 +207,11 @@ def load_settings():
         DIAG_MIXING_MIN=0.05,
         DIAG_MIXING_MAX=0.95,
         DIAG_MIXING_X_FRAC=0.5,
+        DIAG_PLANE_ENABLED=False,
+        DIAG_PLANE_X=None,
+        DIAG_SPECTRA_ENABLED=False,
+        DIAG_STRUCTURE_ENABLED=False,
+        DIAG_STRUCTURE_MAX_LAG=16,
         # restart checks
         RESTART_STRICT=False,
     )

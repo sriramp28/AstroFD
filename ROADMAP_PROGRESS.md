@@ -10,7 +10,7 @@ This file tracks the current plan and completion status so work can resume easil
    - HLLD benchmark validation suite (in progress; Riemann init + verify script)
    - Primitive recovery stress testing + fallback verification in CI (in progress)
 2. Diagnostics/analysis
-   - Spectra/structure functions, flux budgets, entrainment/mixing reports (pending)
+   - Spectra/structure functions, flux budgets, entrainment/mixing reports (in progress)
 3. Non-ideal MHD validation
    - Resistive + Hall/ambipolar/hyper-resistive test cases (pending)
 4. SN physics fidelity

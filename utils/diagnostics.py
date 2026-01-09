@@ -127,6 +127,171 @@ def compute_centerline_and_write(pr, dx, dy, dz,
                         f"{out_G[ii]:.8e},{out_rho[ii]:.8e},"
                         f"{out_p[ii]:.8e},{out_vx[ii]:.8e}\n")
 
+
+def _gather_centerline(pr, offs_x, comm, rank, NG):
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+    nx_loc = pr.shape[1] - 2*NG
+
+    j = NG + ny_loc // 2
+    k = NG + nz_loc // 2
+    i_loc = slice(NG, NG + nx_loc)
+
+    rho_l = pr[0, i_loc, j, k].copy()
+    vx_l  = pr[1, i_loc, j, k].copy()
+    vy_l  = pr[2, i_loc, j, k].copy()
+    vz_l  = pr[3, i_loc, j, k].copy()
+    p_l   = pr[4, i_loc, j, k].copy()
+
+    count = np.int32(nx_loc)
+    counts_all = comm.gather(count, root=0)
+    if rank == 0:
+        total = np.sum(counts_all)
+        disp = np.zeros_like(counts_all, dtype=np.int32)
+        for r in range(1, len(counts_all)):
+            disp[r] = disp[r-1] + counts_all[r-1]
+        out_rho = np.empty(total); out_p = np.empty(total)
+        out_vx = np.empty(total); out_vy = np.empty(total); out_vz = np.empty(total)
+    else:
+        out_rho = out_p = out_vx = out_vy = out_vz = None; disp = None
+
+    comm.Gatherv(sendbuf=rho_l, recvbuf=(out_rho,(counts_all,disp)) if rank==0 else None, root=0)
+    comm.Gatherv(sendbuf=p_l,   recvbuf=(out_p,(counts_all,disp))   if rank==0 else None, root=0)
+    comm.Gatherv(sendbuf=vx_l,  recvbuf=(out_vx,(counts_all,disp))  if rank==0 else None, root=0)
+    comm.Gatherv(sendbuf=vy_l,  recvbuf=(out_vy,(counts_all,disp))  if rank==0 else None, root=0)
+    comm.Gatherv(sendbuf=vz_l,  recvbuf=(out_vz,(counts_all,disp))  if rank==0 else None, root=0)
+
+    if rank == 0:
+        return out_rho, out_p, out_vx, out_vy, out_vz
+    return None, None, None, None, None
+
+
+def compute_plane_fluxes_and_write(pr, dx, dy, dz,
+                                   offs_x, counts, comm, rank,
+                                   step, t, run_dir, cfg, prim_to_cons, NG, is_rmhd=False):
+    if not cfg.get("DIAG_PLANE_ENABLED", False):
+        return None
+    planes = cfg.get("DIAG_PLANE_X")
+    if planes is None:
+        return None
+    if not isinstance(planes, (list, tuple)):
+        planes = [planes]
+
+    nx = int(cfg.get("NX", pr.shape[1] - 2*NG))
+    Lx = float(cfg.get("Lx", nx * dx))
+    ny_loc = pr.shape[2] - 2*NG
+    nz_loc = pr.shape[3] - 2*NG
+
+    dA = dy * dz
+    for xv in planes:
+        xval = float(xv)
+        if 0.0 <= xval <= 1.0:
+            xval = xval * Lx
+        i_glob = int(xval / max(Lx, 1e-12) * nx)
+        i_glob = max(0, min(nx - 1, i_glob))
+        i_loc = i_glob - offs_x
+        if 0 <= i_loc < pr.shape[1] - 2*NG:
+            i = NG + i_loc
+            local_mdot = 0.0
+            local_pdot = 0.0
+            local_edot = 0.0
+            for j in range(NG, NG + ny_loc):
+                for k in range(NG, NG + nz_loc):
+                    rho, vx, vy, vz, p = pr[0,i,j,k], pr[1,i,j,k], pr[2,i,j,k], pr[3,i,j,k], pr[4,i,j,k]
+                    if is_rmhd:
+                        Bx, By, Bz, psi = pr[5,i,j,k], pr[6,i,j,k], pr[7,i,j,k], pr[8,i,j,k]
+                        D, Sx, Sy, Sz, tau, _, _, _, _ = prim_to_cons(rho, vx, vy, vz, p, Bx, By, Bz, psi)
+                        B2 = Bx*Bx + By*By + Bz*Bz
+                        pt = p + 0.5*B2
+                        mdot = D * vx
+                        pdot = Sx * vx + pt - Bx*Bx
+                        edot = (tau + pt) * vx - (Bx * (Bx*vx + By*vy + Bz*vz))
+                    else:
+                        D, Sx, Sy, Sz, tau = prim_to_cons(rho, vx, vy, vz, p)
+                        mdot = D * vx
+                        pdot = Sx * vx + p
+                        edot = (tau + p) * vx
+                    local_mdot += mdot * dA
+                    local_pdot += pdot * dA
+                    local_edot += edot * dA
+        else:
+            local_mdot = 0.0
+            local_pdot = 0.0
+            local_edot = 0.0
+
+        mdot = comm.allreduce(local_mdot, op=MPI.SUM)
+        pdot = comm.allreduce(local_pdot, op=MPI.SUM)
+        edot = comm.allreduce(local_edot, op=MPI.SUM)
+
+        if rank == 0:
+            fn = os.path.join(run_dir, "plane_flux.csv")
+            new = not os.path.exists(fn)
+            xwrite = (i_glob + 0.5) * dx
+            with open(fn, "a") as f:
+                if new:
+                    f.write("step,time,x,mdot,pdot,edot\n")
+                f.write(f"{step},{t:.8e},{xwrite:.8e},{mdot:.8e},{pdot:.8e},{edot:.8e}\n")
+
+    return True
+
+
+def compute_spectra_and_write(pr, dx, dy, dz,
+                              offs_x, counts, comm, rank,
+                              step, t, run_dir, cfg, NG):
+    if not cfg.get("DIAG_SPECTRA_ENABLED", False):
+        return None
+    nx = int(cfg.get("NX", pr.shape[1] - 2*NG))
+    Lx = float(cfg.get("Lx", nx * dx))
+
+    out_rho, _, out_vx, _, _ = _gather_centerline(pr, offs_x, comm, rank, NG)
+    if rank != 0:
+        return None
+    n = out_rho.size
+    rho_fluc = out_rho - np.mean(out_rho)
+    vx_fluc = out_vx - np.mean(out_vx)
+    rho_fft = np.fft.rfft(rho_fluc)
+    vx_fft = np.fft.rfft(vx_fluc)
+    power_rho = (rho_fft * np.conj(rho_fft)).real / max(n, 1)
+    power_vx = (vx_fft * np.conj(vx_fft)).real / max(n, 1)
+    k = 2.0 * math.pi * np.fft.rfftfreq(n, d=Lx / max(n, 1))
+
+    fn = os.path.join(run_dir, "spectra.csv")
+    new = not os.path.exists(fn)
+    with open(fn, "a") as f:
+        if new:
+            f.write("step,time,k,power_rho,power_vx\n")
+        for i in range(k.size):
+            f.write(f"{step},{t:.8e},{k[i]:.8e},{power_rho[i]:.8e},{power_vx[i]:.8e}\n")
+    return True
+
+
+def compute_structure_and_write(pr, dx, dy, dz,
+                                offs_x, counts, comm, rank,
+                                step, t, run_dir, cfg, NG):
+    if not cfg.get("DIAG_STRUCTURE_ENABLED", False):
+        return None
+    lmax = int(cfg.get("DIAG_STRUCTURE_MAX_LAG", 16))
+    if lmax < 1:
+        return None
+    nx = int(cfg.get("NX", pr.shape[1] - 2*NG))
+    Lx = float(cfg.get("Lx", nx * dx))
+
+    _, _, out_vx, _, _ = _gather_centerline(pr, offs_x, comm, rank, NG)
+    if rank != 0:
+        return None
+    n = out_vx.size
+    max_lag = min(lmax, n - 1)
+    fn = os.path.join(run_dir, "structure.csv")
+    new = not os.path.exists(fn)
+    with open(fn, "a") as f:
+        if new:
+            f.write("step,time,lag,lag_x,S2_vx\n")
+        for lag in range(1, max_lag + 1):
+            dv = out_vx[lag:] - out_vx[:-lag]
+            s2 = np.mean(dv * dv)
+            f.write(f"{step},{t:.8e},{lag},{lag * Lx / max(n,1):.8e},{s2:.8e}\n")
+    return True
+
 def compute_divb_and_write(pr, dx, dy, dz,
                            offs_x, counts, comm, rank,
                            step, t, run_dir, NG):
