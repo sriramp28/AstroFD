@@ -8,8 +8,8 @@
 \usepackage{makecell}
 \geometry{margin=1in}
 
-\title{AstroFD: Relativistic Jet and SN-lite Solver}
-\author{AstroFD Contributors}
+\title{AstroFD: A Relativistic Jet and SN-lite Solver for Modular Physics Studies}
+\author{Rangamahishi\thanks{Daniel Guggenheim School of Aerospace Engineering, Georgia Institute of Technology}}
 \date{\today}
 
 \begin{document}
@@ -18,70 +18,55 @@
 \begin{abstract}
 AstroFD is a finite-volume solver for relativistic hydrodynamics and
 magnetohydrodynamics in flat spacetime and on fixed curved backgrounds.
-The code targets relativistic jet simulations and SN-lite core-collapse
+It targets relativistic jet simulations and SN-lite core-collapse
 scenarios with configurable nozzle injection, GLM divergence cleaning,
 causal dissipation, two-temperature relaxation, non-ideal MHD extensions,
-H/He non-equilibrium chemistry, and parametric neutrino heating. This
-report provides full governing equations, variable definitions, numerical
-procedures, and validation workflows for reproducible research.
+H/He non-equilibrium chemistry, and parametric neutrino heating. We
+present the governing equations, numerical methods, and validation
+procedures, emphasizing a modular design that enables controlled
+comparisons across physics closures and numerical options.
 \end{abstract}
 
 \section{Introduction}
 Relativistic jets and core-collapse flows exhibit strong shocks, large
-Lorentz factors, magnetic stresses, and stiff source terms. AstroFD is
-built as a modular research code for controlled studies of these regimes.
-It combines robust conservative discretizations with optional high-order
-reconstruction and flexible physics modules.
-Our design goal is to retain a clear separation between the conservative
-hyperbolic update and optional source-term physics, so that each module
-can be enabled, validated, and compared in isolation. This enables
-systematic studies of jet stability, entrainment, and magnetization, and
-controlled exploration of SN-lite heating and gravity prescriptions. The
-code is not intended as a full radiation-hydrodynamic or general
-relativistic spacetime solver, but instead as a flexible platform for
-numerical experiments with well-defined approximations.
+Lorentz factors, magnetic stresses, and stiff source terms. Numerical
+models must balance robustness, accuracy, and transparency in order to
+support systematic studies across physical assumptions. AstroFD is
+constructed as a modular research code with a clear separation between
+conservative hyperbolic updates and optional source-term physics, so that
+individual closures can be enabled, validated, and compared in isolation.
 
-\section{Physical Background and Literature}
-Relativistic jet modeling relies on SRHD and RMHD formulations for
-ultrarelativistic flows, shocks, and magnetic stresses
-\cite{marti1999, anile1989, komissarov1999}. GRHD/GRMHD is commonly
-expressed using the Valencia 3+1 split \cite{banyuls1997, font2008}
-with widely used astrophysical implementations such as HARM and ECHO
-\cite{gammie2003, delzanna2007}. Divergence control in MHD is essential;
-GLM cleaning provides a robust hyperbolic/parabolic mechanism
-\cite{dedner2002, mignone2010}.
+The present paper documents the physical and numerical formulation of
+AstroFD and provides a reproducible baseline for future extensions. The
+current implementation assumes fixed spacetime metrics for GRHD/GRMHD and
+parameterized heating/cooling for SN-lite studies; these choices are
+made explicitly to enable controlled experiments and to facilitate rapid
+parameter sweeps. Extensions to higher-fidelity transport and dynamic
+spacetime evolution are planned and are discussed in Section
+\ref{sec:discussion}.
 
-High-order reconstruction methods such as PPM and WENO improve accuracy in
-smooth regions while maintaining stability across discontinuities
-\cite{colella1984, jiang1996}. SSPRK time integration provides strong
-stability-preserving updates for hyperbolic systems \cite{gottlieb2001}.
+\section{Related Work}
+Relativistic jet modeling is commonly built on SRHD and RMHD
+formulations \cite{marti1999, anile1989, komissarov1999}. The Valencia
+3+1 split underlies many GRHD/GRMHD implementations
+\cite{banyuls1997, font2008}, including production codes such as HARM and
+ECHO \cite{gammie2003, delzanna2007}. Divergence control in MHD is often
+handled by constrained transport or GLM cleaning \cite{dedner2002,
+mignone2010}. High-order reconstruction (e.g., PPM, WENO) and SSPRK time
+integration are standard in shock-capturing schemes
+\cite{colella1984, jiang1996, gottlieb2001}.
 
-SN-lite physics uses parametric heating and cooling models motivated by
-core-collapse supernova literature \cite{janka2001, janka2012}. Causal
-relativistic dissipation follows Israel--Stewart-type formulations
-\cite{israel1979, rezolla2013}. Resistive and non-ideal MHD extend ideal
-models for controlled exploration of reconnection and drift physics
-\cite{palenzuela2009}.
-We emphasize that AstroFD is built to support reproducible comparisons
-across numerical methods and physical closures. Each physics add-on is
-implemented as a clearly isolated source term, enabling users to match
-the mathematical form to published models and to quantify how the
-numerical treatment impacts stability and accuracy. This framing is
-particularly important for jet and SN-lite studies, where physical
-uncertainties are large and sensitivity to numerical choices can be
-substantial.
+For SN-lite modeling, parameterized heating and cooling prescriptions are
+widely used to study qualitative shock dynamics and gain-region behavior
+\cite{janka2001, janka2012}. Causal dissipation follows Israel--Stewart
+formulations \cite{israel1979, rezolla2013}, and resistive or non-ideal
+MHD extensions enable controlled explorations of reconnection physics
+\cite{palenzuela2009}. AstroFD positions itself as a modular, transparent
+code that consolidates these components within a single, configurable
+framework, facilitating reproducible comparisons between models.
 
-\subsection{Related Work and Positioning}
-AstroFD is positioned as a modular research code emphasizing controlled
-comparisons across physics closures and numerical options. In contrast to
-production GRMHD codes such as HARM and ECHO \\cite{gammie2003, delzanna2007},
-AstroFD prioritizes transparency and configurability over high-fidelity
-transport or dynamic spacetime evolution. Its design follows established
-finite-volume practice in SRHD/RMHD \\cite{marti1999, komissarov1999} while
-providing explicit hooks for dissipation, chemistry, and SN-lite source
-terms in a single framework.
-
-\section{Notation and Variables}
+\section{Methods}
+\subsection{Notation and Variables}
 We use units with $c = 1$ and metric signature $(-,+,+,+)$. Greek indices
 represent spacetime components and Latin indices represent spatial
 components. The 4-velocity is $u^\mu$, Lorentz factor is
@@ -118,9 +103,293 @@ $q^\mu$ & heat flux \\
 \label{tab:notation}
 \end{table}
 
-\section{Model Assumptions and Scope}
-Table \\ref{tab:model-assumptions} summarizes key assumptions across
-physics modules to clarify applicability and limitations.
+\subsection{Governing Equations}
+\subsubsection{SRHD}
+The covariant SRHD equations are
+\begin{align}
+\nabla_\mu (\rho u^\mu) &= 0, \\
+\nabla_\mu T^{\mu\nu} &= 0,
+\end{align}
+with stress-energy tensor
+\begin{equation}
+T^{\mu\nu} = \rho h u^\mu u^\nu + p g^{\mu\nu}.
+\end{equation}
+In 3+1 form, the conserved variables are
+\begin{align}
+D &= \rho W, \\
+S_i &= \rho h W^2 v_i, \\
+\tau &= \rho h W^2 - p - D,
+\end{align}
+and the evolution equation is
+\begin{equation}
+\partial_t U + \partial_i F^i(U) = S(U),
+\end{equation}
+where $U = (D, S_i, \tau)$, $F^i$ are the conservative fluxes, and $S$
+contains physical source terms (zero for flat SRHD). In practice, we
+advance $U$ on a Cartesian grid, reconstruct primitives to faces, and
+compute fluxes via an approximate Riemann solver.
+
+\paragraph{Assumptions.}
+SRHD assumes a single-fluid ideal-gas EOS and neglects magnetic stresses.
+It is appropriate for baseline jet tests and convergence studies.
+
+\subsubsection{RMHD and GLM Cleaning}
+Ideal RMHD satisfies
+\begin{align}
+\nabla_\mu (\rho u^\mu) &= 0, \\
+\nabla_\mu T^{\mu\nu} &= 0, \\
+\nabla_\mu {^*F}^{\mu\nu} &= 0,
+\end{align}
+with stress-energy tensor
+\begin{equation}
+T^{\mu\nu} = (\rho h + b^2) u^\mu u^\nu + \left(p + \frac{b^2}{2}\right) g^{\mu\nu} - b^\mu b^\nu,
+\end{equation}
+where $b^\mu$ is the magnetic 4-vector and $b^2 = b^\mu b_\mu$. GLM
+cleaning enforces divergence control \cite{dedner2002, mignone2010}:
+\begin{align}
+\partial_t \mathbf{B} + \nabla \times \mathbf{E} + \nabla \psi &= 0, \\
+\partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi.
+\end{align}
+The GLM system introduces a damped cleaning wave, compatible with the
+Riemann solvers used here.
+
+\paragraph{Assumptions.}
+AstroFD uses ideal RMHD with GLM cleaning; constrained transport is not
+implemented. Reconnection is therefore numerical unless resistive or
+non-ideal terms are enabled.
+
+\subsubsection{GRHD/GRMHD: Valencia Form}
+For fixed backgrounds, we adopt a 3+1 split with lapse $\alpha$, shift
+$\beta^i$, and spatial metric $\gamma_{ij}$. The conservative update is
+\begin{equation}
+\partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
+\end{equation}
+with conserved variables
+\begin{align}
+D &= \rho W, \\
+S_i &= (\rho h + b^2) W^2 v_i - \alpha b^0 b_i, \\
+\tau &= (\rho h + b^2) W^2 - \left(p + \frac{b^2}{2}\right) - D - (\alpha b^0)^2.
+\end{align}
+Metric source terms are computed from the fixed background.
+
+\paragraph{Assumptions.}
+Spacetime is fixed and analytic; the Einstein equations are not evolved.
+
+\subsubsection{Valencia Fluxes and Sources}
+The Valencia formulation expresses the GRHD/GRMHD system as
+\begin{equation}
+\partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
+\end{equation}
+where $U = (D, S_j, \tau)$ and $F^i$ are
+\begin{align}
+F^i_D &= D (\alpha v^i - \beta^i), \\
+F^i_{S_j} &= S_j (\alpha v^i - \beta^i) + \alpha \left(p + \frac{b^2}{2}\right)\delta^i{}_j - \alpha b^i b_j, \\
+F^i_{\tau} &= \tau (\alpha v^i - \beta^i) + \alpha \left(p + \frac{b^2}{2}\right) v^i - \alpha b^0 b^i.
+\end{align}
+The source terms are
+\begin{align}
+S_D &= 0, \\
+S_{S_j} &= \frac{\alpha}{2} T^{\mu\nu} \partial_j g_{\mu\nu}, \\
+S_{\tau} &= \alpha \left(T^{\mu 0} \partial_\mu \ln \alpha - T^{\mu\nu} \Gamma^0_{\mu\nu}\right),
+\end{align}
+where $\Gamma^\alpha_{\mu\nu}$ are the Christoffel symbols. AstroFD uses
+analytic fixed metrics (Minkowski, Schwarzschild, Kerr-Schild) and
+computes these source terms from the prescribed background.
+
+\paragraph{Magnetic 4-vector relations.}
+In ideal RMHD, the lab-frame magnetic field $B^i$ and 4-vector $b^\mu$ are
+related by
+\begin{align}
+b^0 &= W (B^i v_i), \\
+b^i &= \frac{B^i}{W} + b^0 v^i,
+\end{align}
+and the ideal electric field satisfies $\mathbf{E} = -\mathbf{v} \times \mathbf{B}$.
+
+\subsubsection{Causal Dissipation}
+Israel--Stewart-type causal dissipation evolves bulk pressure $\Pi$,
+shear stress $\pi^{\mu\nu}$, and heat flux $q^\mu$ with relaxation
+\cite{israel1979, rezolla2013}:
+\begin{align}
+\tau_\Pi u^\alpha \nabla_\alpha \Pi + \Pi &= -\zeta \nabla_\alpha u^\alpha, \\
+\tau_\pi u^\alpha \nabla_\alpha \pi^{\mu\nu} + \pi^{\mu\nu} &= 2 \eta \sigma^{\mu\nu}, \\
+\tau_q u^\alpha \nabla_\alpha q^\mu + q^\mu &= -\kappa T \Delta^{\mu\nu} \nabla_\nu T.
+\end{align}
+
+\paragraph{Assumptions.}
+Transport coefficients are user-specified and spatially uniform unless
+encoded through source terms. The model is intended for exploratory
+studies rather than calibrated microphysical viscosity.
+
+\subsubsection{Two-Temperature Relaxation}
+Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
+\begin{align}
+\partial_t (\rho e_e) + \nabla \cdot (\rho e_e \mathbf{v}) &= \rho \frac{e_i - e_e}{\tau_{ei}}, \\
+\partial_t (\rho e_i) + \nabla \cdot (\rho e_i \mathbf{v}) &= \rho \frac{e_e - e_i}{\tau_{ei}}.
+\end{align}
+
+\paragraph{Assumptions.}
+The two-temperature model uses a single relaxation timescale and does
+not resolve kinetic-scale energy exchange. It is best interpreted as a
+coarse-grained closure for parametric studies.
+
+\subsubsection{H/He Non-Equilibrium Chemistry}
+Species mass fractions $X_s$ satisfy
+\begin{equation}
+\partial_t (\rho X_s) + \nabla \cdot (\rho X_s \mathbf{v}) = \rho \dot{X}_s.
+\end{equation}
+The code uses collisional ionization and case-B recombination rates with
+IMEX updates, following standard fits \cite{cen1992}.
+
+\paragraph{Assumptions.}
+The network is minimal and omits molecular species and metal cooling;
+rates should be interpreted as illustrative rather than definitive.
+
+\subsubsection{Passive Tracers}
+Passive tracers $C_k$ obey
+\begin{equation}
+\partial_t (\rho C_k) + \nabla \cdot (\rho C_k \mathbf{v}) = 0,
+\end{equation}
+with inlet and ambient values set by configuration.
+
+\subsubsection{Resistive and Non-Ideal MHD}
+Resistive MHD uses Ohm's law
+\begin{equation}
+\mathbf{E} + \mathbf{v} \times \mathbf{B} = \eta \mathbf{J},
+\end{equation}
+with $\mathbf{J} = \nabla \times \mathbf{B}$. Optional Hall and ambipolar
+corrections are included as explicit terms for controlled experiments
+\cite{palenzuela2009}.
+
+\paragraph{Assumptions.}
+Non-ideal terms are applied explicitly and can be stiff; stability is
+parameter-dependent and may require small timesteps or subcycling.
+
+\subsubsection{SN-lite Gravity}
+Newtonian gravity is applied as a source term with
+\begin{equation}
+\mathbf{g} = -G M(r) \frac{\mathbf{r}}{(r^2 + \epsilon^2)^{3/2}},
+\end{equation}
+using point-mass or monopole $M(r)$ options. Optionally, energy coupling
+adds a pressure work term proportional to $\rho \mathbf{v} \cdot \mathbf{g}$.
+
+\paragraph{Assumptions.}
+The gravity model neglects relativistic corrections and assumes a static
+potential.
+
+\subsubsection{SN-lite Gain Heating/Cooling}
+The gain model applies pressure updates
+\begin{equation}
+\Delta p = (\gamma - 1) (Q^+ - Q^-) \, \mathcal{W}(r) \, \mathcal{S}(\rho, p, t) \, \Delta t,
+\end{equation}
+with a radial weight $\mathcal{W}(r)$ and scaling $\mathcal{S}$. Implemented
+radial weights include:
+\begin{align}
+\mathcal{W}_{\mathrm{sph}} &= \left(1 + \xi^2\right)^{-1}, \quad \xi = \frac{r - r_0}{r_1}, \\
+\mathcal{W}_{\mathrm{pow}} &= \left(\frac{r_0}{r}\right)^{p}, \\
+\mathcal{W}_{\mathrm{exp}} &= \exp\left(-\frac{|r - r_0|}{r_1}\right), \\
+\mathcal{W}_{\mathrm{gauss}} &= \exp\left(-\left(\frac{r - r_0}{r_1}\right)^2\right).
+\end{align}
+Density and pressure scalings use optional exponents, and a time decay
+factor $\exp[-(t - t_0)/\tau]$ can be applied.
+
+\paragraph{Assumptions.}
+Heating and cooling are parameterized and spatially prescribed; no
+neutrino transport is solved.
+
+\subsubsection{SN-lite Neutrino Lightbulb}
+The lightbulb model applies a heating/cooling term using
+\begin{align}
+F_\nu &= \frac{L_\nu}{4 \pi r^2}, \\
+\tau_{\mathrm{eff}} &= \max(\tau_0, \kappa \rho r), \\
+Q^+ &= C_{\mathrm{abs}} F_\nu \epsilon_\nu e^{-\tau_{\mathrm{eff}}} \, \mathcal{W}(r), \\
+Q^- &= C_{\mathrm{cool}} \rho T^{n},
+\end{align}
+with the same radial weight $\mathcal{W}(r)$ and optional time decay.
+
+\paragraph{Assumptions.}
+The lightbulb model uses simplified attenuation and cooling laws and is
+not a replacement for multi-group neutrino transport.
+
+\subsubsection{Radiation--Plasma Coupling}
+Optional radiation coupling relaxes the gas temperature toward $T_{\rm rad}$:
+\begin{equation}
+\frac{dT}{dt} = -\lambda (T - T_{\rm rad}),
+\end{equation}
+with $T \approx p/\rho$ in code units and a configurable coupling rate.
+
+\paragraph{Assumptions.}
+This relaxation does not solve radiation transport and assumes a single
+imposed $T_{\rm rad}$.
+
+\subsection{Numerical Methods}
+AstroFD uses a standard finite-volume method with reconstruction,
+Riemann solvers, and SSPRK time integration. The method is designed to be
+robust for shocks and discontinuities while remaining extensible to
+higher-order reconstructions.
+
+\subsubsection{Finite-Volume Discretization}
+We update cell-averaged conserved variables on a Cartesian mesh with
+ghost zones. The semi-discrete update is
+\begin{equation}
+\frac{d U_{i,j,k}}{dt} = -\frac{F^x_{i+1/2,j,k} - F^x_{i-1/2,j,k}}{\Delta x}
+-\frac{F^y_{i,j+1/2,k} - F^y_{i,j-1/2,k}}{\Delta y}
+-\frac{F^z_{i,j,k+1/2} - F^z_{i,j,k-1/2}}{\Delta z} + S_{i,j,k}.
+\end{equation}
+The timestep is set by a CFL constraint
+\begin{equation}
+\Delta t = C_{\mathrm{CFL}} \min\left(\frac{\Delta x}{a_{\max}}, \frac{\Delta y}{a_{\max}}, \frac{\Delta z}{a_{\max}}\right),
+\end{equation}
+where $a_{\max}$ is the maximum signal speed.
+
+\subsubsection{Reconstruction}
+Primitive variables are reconstructed to cell faces. MUSCL uses a limited
+slope
+\begin{equation}
+\Delta q_i = \phi(\Delta q_{i-1/2}, \Delta q_{i+1/2}),
+\end{equation}
+with MC/minmod/van Leer limiters. PPM and WENO5 are available for higher
+order accuracy \cite{colella1984, jiang1996}.
+
+\subsubsection{Riemann Solvers}
+HLLE provides a robust baseline. HLLC is used for hydro, and HLLD/full
+HLLD for RMHD \cite{toro1999, miyoshi2005}. The solver is selected at
+runtime.
+
+\subsubsection{Time Integration}
+We support SSPRK2 and SSPRK3 integration \cite{gottlieb2001}. SSPRK2 uses
+\begin{align}
+U^{(1)} &= U^n + \Delta t L(U^n), \\
+U^{n+1} &= \frac{1}{2} U^n + \frac{1}{2} \left(U^{(1)} + \Delta t L(U^{(1)})\right).
+\end{align}
+
+\subsubsection{Source Term Coupling and IMEX}
+Source terms are applied with operator splitting. For stiff terms, we
+apply implicit relaxation with subcycled updates
+\begin{align}
+U^* &= U^n + \Delta t L(U^n), \\
+U^{n+1} &= U^* + \Delta t S(U^{n+1}).
+\end{align}
+
+\subsubsection{Primitive Recovery}
+Primitive recovery solves for $(\rho, p, v_i)$ given the conservative
+state. RMHD recovery uses iterative inversion with fallback strategies
+\cite{noble2006}.
+
+\subsection{Algorithm Summary}
+A single timestep proceeds as:
+\begin{enumerate}
+  \item Apply boundary conditions and nozzle inflow.
+  \item Reconstruct primitives to faces (MUSCL/PPM/WENO).
+  \item Solve Riemann problems at faces and compute fluxes.
+  \item Update conserved variables with flux divergence.
+  \item Apply source terms (gravity, GLM damping, dissipation, chemistry).
+  \item Recover primitives and enforce floors/caps.
+  \item Write diagnostics and outputs as configured.
+\end{enumerate}
+
+\subsection{Model Assumptions and Scope}
+Table \ref{tab:model-assumptions} summarizes key assumptions across
+physics modules.
 
 \begin{table}[ht]
 \centering
@@ -145,391 +414,7 @@ Radiation Coupling & Relaxation to imposed $T_{\rm rad}$. \\
 \label{tab:model-assumptions}
 \end{table}
 
-\section{Governing Equations}
-\subsection{Overview}
-We summarize the systems advanced by AstroFD in a unified conservation-law
-form. Each system is expressed in covariant form, then cast into a 3+1
-flux-conservative representation suitable for finite-volume updates.
-Where applicable, we highlight how source terms are constructed for
-gravity, dissipation, and heating/cooling.
-\subsection{SRHD: Conservation Laws}
-The covariant SRHD equations are
-\begin{align}
-\nabla_\mu (\rho u^\mu) &= 0, \\
-\nabla_\mu T^{\mu\nu} &= 0,
-\end{align}
-with stress-energy tensor
-\begin{equation}
-T^{\mu\nu} = \rho h u^\mu u^\nu + p g^{\mu\nu}.
-\end{equation}
-In 3+1 form, the conserved variables are
-\begin{align}
-D &= \rho W, \\
-S_i &= \rho h W^2 v_i, \\
-\tau &= \rho h W^2 - p - D,
-\end{align}
-and the evolution equation is
-\begin{equation}
-\partial_t U + \partial_i F^i(U) = S(U),
-\end{equation}
-where $U = (D, S_i, \tau)$, $F^i$ are the conservative fluxes, and $S$
-contains physical source terms (zero for flat SRHD).
-In practice, we evolve $U$ on a Cartesian grid, reconstruct primitives
-to faces, and compute fluxes using a chosen approximate Riemann solver.
-The formulation is standard and widely used for relativistic jet
-simulations, providing a consistent baseline for comparisons with MHD
-and GR extensions.
-\paragraph{Limitations and Assumptions.}
-SRHD assumes a single-fluid ideal-gas EOS and neglects magnetic stresses.
-All geometric source terms vanish in the flat-spacetime limit, so this
-model is most appropriate for jet tests and baseline convergence studies.
-
-\subsection{RMHD: Ideal MHD and GLM Cleaning}
-Ideal RMHD satisfies
-\begin{align}
-\nabla_\mu (\rho u^\mu) &= 0, \\
-\nabla_\mu T^{\mu\nu} &= 0, \\
-\nabla_\mu {^*F}^{\mu\nu} &= 0,
-\end{align}
-with stress-energy tensor
-\begin{equation}
-T^{\mu\nu} = (\rho h + b^2) u^\mu u^\nu + \left(p + \frac{b^2}{2}\right) g^{\mu\nu} - b^\mu b^\nu,
-\end{equation}
-where $b^\mu$ is the magnetic 4-vector and $b^2 = b^\mu b_\mu$.
-Divergence control is enforced by GLM cleaning
-\cite{dedner2002, mignone2010}:
-\begin{align}
-\partial_t \mathbf{B} + \nabla \times \mathbf{E} + \nabla \psi &= 0, \\
-\partial_t \psi + c_h^2 \nabla \cdot \mathbf{B} &= -c_p^2 \psi.
-\end{align}
-The GLM system is chosen for its ease of implementation and robustness
-in finite-volume methods. It introduces a damped cleaning wave that
-propagates divergence errors out of the domain without explicitly
-constraining the magnetic field, and is compatible with the Riemann
-solvers used here.
-\paragraph{Limitations and Assumptions.}
-AstroFD uses ideal RMHD with GLM cleaning and does not enforce a
-constrained-transport update. Magnetic reconnection is therefore
-numerically controlled unless resistive/non-ideal terms are enabled.
-
-\subsection{GRHD/GRMHD: Valencia Formulation}
-For fixed backgrounds, we adopt a 3+1 split with lapse $\alpha$, shift
-$\beta^i$, and spatial metric $\gamma_{ij}$. The conservative update is
-\begin{equation}
-\partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
-\end{equation}
-with conserved variables
-\begin{align}
-D &= \rho W, \\
-S_i &= (\rho h + b^2) W^2 v_i - \alpha b^0 b_i, \\
-\tau &= (\rho h + b^2) W^2 - \left(p + \frac{b^2}{2}\right) - D - (\alpha b^0)^2.
-\end{align}
-Metric source terms are computed from the fixed background.
-AstroFD assumes a fixed spacetime and does not evolve the Einstein
-equations. This approximation is appropriate for jet propagation in
-prescribed compact-object metrics and for test problems that emphasize
-hydrodynamic and magnetic dynamics over spacetime evolution.
-\paragraph{Limitations and Assumptions.}
-The spacetime is static and analytic; dynamic spacetime evolution is out
-of scope. Metric derivatives are computed analytically and inserted as
-source terms, which is appropriate for fixed-background tests.
-
-\subsubsection{Valencia Fluxes and Sources}
-The Valencia formulation expresses the GRHD/GRMHD system as
-\begin{equation}
-\partial_t (\sqrt{\gamma} U) + \partial_i (\sqrt{\gamma} F^i) = \sqrt{\gamma} S,
-\end{equation}
-where $U = (D, S_j, \tau)$ and $F^i$ are
-\begin{align}
-F^i_D &= D (\alpha v^i - \beta^i), \\
-F^i_{S_j} &= S_j (\alpha v^i - \beta^i) + \alpha \left(p + \frac{b^2}{2}\right)\delta^i{}_j - \alpha b^i b_j, \\
-F^i_{\tau} &= \tau (\alpha v^i - \beta^i) + \alpha \left(p + \frac{b^2}{2}\right) v^i - \alpha b^0 b^i.
-\end{align}
-The source terms are
-\begin{align}
-S_D &= 0, \\
-S_{S_j} &= \frac{\alpha}{2} T^{\mu\nu} \partial_j g_{\mu\nu}, \\
-S_{\tau} &= \alpha \left(T^{\mu 0} \partial_\mu \ln \alpha - T^{\mu\nu} \Gamma^0_{\mu\nu}\right),
-\end{align}
-where $\Gamma^\alpha_{\mu\nu}$ are the Christoffel symbols.\\
-AstroFD uses fixed analytic metrics (Minkowski, Schwarzschild, Kerr-Schild)
-and computes these source terms from the prescribed background.
-
-\paragraph{Magnetic 4-vector relations.}
-In ideal RMHD, the lab-frame magnetic field $B^i$ and 4-vector $b^\mu$ are
-related by
-\begin{align}
-b^0 &= W (B^i v_i), \\
-b^i &= \frac{B^i}{W} + b^0 v^i,
-\end{align}
-and the ideal electric field satisfies $\mathbf{E} = -\mathbf{v} \times \mathbf{B}$.
-
-\subsection{Causal Dissipation}
-Israel--Stewart-type causal dissipation evolves bulk pressure $\Pi$,
-shear stress $\pi^{\mu\nu}$, and heat flux $q^\mu$ with relaxation
-\cite{israel1979, rezolla2013}:
-\begin{align}
-\tau_\Pi u^\alpha \nabla_\alpha \Pi + \Pi &= -\zeta \nabla_\alpha u^\alpha, \\
-\tau_\pi u^\alpha \nabla_\alpha \pi^{\mu\nu} + \pi^{\mu\nu} &= 2 \eta \sigma^{\mu\nu}, \\
-\tau_q u^\alpha \nabla_\alpha q^\mu + q^\mu &= -\kappa T \Delta^{\mu\nu} \nabla_\nu T.
-\end{align}
-These terms are applied as local source updates with configurable
-relaxation times and coefficients. The intent is to provide a causal,
-hyperbolic extension of Navier--Stokes suitable for relativistic flows,
-while keeping the implementation modular for numerical experimentation.
-\paragraph{Limitations and Assumptions.}
-Transport coefficients are user-specified and spatially uniform unless
-encoded through source terms. The model is intended for exploratory
-studies rather than calibrated microphysical viscosity.
-
-\subsection{Two-Temperature Relaxation}
-Electron and ion internal energies evolve with relaxation time $\tau_{ei}$:
-\begin{align}
-\partial_t (\rho e_e) + \nabla \cdot (\rho e_e \mathbf{v}) &= \rho \frac{e_i - e_e}{\tau_{ei}}, \\
-\partial_t (\rho e_i) + \nabla \cdot (\rho e_i \mathbf{v}) &= \rho \frac{e_e - e_i}{\tau_{ei}}.
-\end{align}
-This closure is useful for plasmas where electron and ion temperatures
-remain out of equilibrium on dynamical timescales. AstroFD uses a
-relaxation-time model that can be tuned to capture rapid coupling or
-nearly decoupled limits.
-\paragraph{Limitations and Assumptions.}
-The two-temperature model uses a single relaxation timescale and does
-not resolve kinetic-scale energy exchange. It is best interpreted as a
-coarse-grained closure for parametric studies.
-
-\subsection{H/He Non-Equilibrium Chemistry}
-Species mass fractions $X_s$ satisfy
-\begin{equation}
-\partial_t (\rho X_s) + \nabla \cdot (\rho X_s \mathbf{v}) = \rho \dot{X}_s.
-\end{equation}
-The code uses collisional ionization and case-B recombination rates with
-IMEX updates, following standard fits \cite{cen1992}.
-We track a minimal H/He network to capture ionization energy exchange and
-composition evolution without the cost of a full chemical solver. The
-network is intended for qualitative studies and controlled comparisons
-with analytic expectations rather than high-fidelity astrochemistry.
-\paragraph{Limitations and Assumptions.}
-The chemistry network is intentionally minimal and omits molecular
-species and metal cooling. Rate coefficients are simplified fits and
-should be interpreted as illustrative rather than definitive.
-
-\subsection{Passive Tracers}
-Passive tracers $C_k$ obey
-\begin{equation}
-\partial_t (\rho C_k) + \nabla \cdot (\rho C_k \mathbf{v}) = 0,
-\end{equation}
-with inlet and ambient values set by configuration.
-
-\subsection{Resistive and Non-Ideal MHD}
-Resistive MHD uses Ohm's law
-\begin{equation}
-\mathbf{E} + \mathbf{v} \times \mathbf{B} = \eta \mathbf{J},
-\end{equation}
-with $\mathbf{J} = \nabla \times \mathbf{B}$. Optional Hall and ambipolar
-corrections are included as explicit terms for controlled experiments
-\cite{palenzuela2009}.
-These terms are implemented as additive source corrections, providing a
-lightweight mechanism to probe reconnection and drift physics without
-introducing full kinetic models. Because they can introduce stiffness,
-their use is intended primarily for targeted experiments and validation.
-\paragraph{Limitations and Assumptions.}
-Non-ideal terms are applied explicitly and can be stiff; stability is
-parameter-dependent and may require small timesteps or subcycling.
-
-\subsection{SN-lite Gravity}
-Newtonian gravity is applied as a source term with
-\begin{equation}
-\mathbf{g} = -G M(r) \frac{\mathbf{r}}{(r^2 + \epsilon^2)^{3/2}},
-\end{equation}
-using point-mass or monopole $M(r)$ options. Optionally, energy coupling
-adds a pressure work term proportional to $\rho \mathbf{v} \cdot \mathbf{g}$.
-The gravity model is Newtonian and used primarily for core-collapse-like
-tests and parameter studies. For monopole gravity, the enclosed mass
-profile can be computed from the density field and updated at a user-
-specified cadence.
-\paragraph{Limitations and Assumptions.}
-The gravity model neglects relativistic corrections and assumes a static
-potential. It is intended for SN-lite experiments and not precision
-core-collapse modeling.
-
-\subsection{SN-lite Gain Heating/Cooling}
-The gain model applies pressure updates
-\begin{equation}
-\Delta p = (\gamma - 1) (Q^+ - Q^-) \, \mathcal{W}(r) \, \mathcal{S}(\rho, p, t) \, \Delta t,
-\end{equation}
-with a radial weight $\mathcal{W}(r)$ and scaling $\mathcal{S}$. Implemented
-radial weights include:
-\begin{align}
-\mathcal{W}_{\mathrm{sph}} &= \left(1 + \xi^2\right)^{-1}, \quad \xi = \frac{r - r_0}{r_1}, \\
-\mathcal{W}_{\mathrm{pow}} &= \left(\frac{r_0}{r}\right)^{p}, \\
-\mathcal{W}_{\mathrm{exp}} &= \exp\left(-\frac{|r - r_0|}{r_1}\right), \\
-\mathcal{W}_{\mathrm{gauss}} &= \exp\left(-\left(\frac{r - r_0}{r_1}\right)^2\right).
-\end{align}
-Density and pressure scalings use optional exponents, and a time decay
-factor $\exp[-(t - t_0)/\tau]$ can be applied.
-These gain-region prescriptions are intended to capture qualitative
-heating behavior in the gain layer without detailed neutrino transport.
-The model parameters are configurable and can be chosen to match
-published lightbulb or gain-region setups.
-\paragraph{Limitations and Assumptions.}
-Heating and cooling are parameterized and spatially prescribed; no
-neutrino transport is solved. Results should therefore be interpreted as
-parametric sensitivity studies rather than predictive models.
-
-\subsection{SN-lite Neutrino Lightbulb}
-The lightbulb model applies a heating/cooling term using
-\begin{align}
-F_\nu &= \frac{L_\nu}{4 \pi r^2}, \\
-\tau_{\mathrm{eff}} &= \max(\tau_0, \kappa \rho r), \\
-Q^+ &= C_{\mathrm{abs}} F_\nu \epsilon_\nu e^{-\tau_{\mathrm{eff}}} \, \mathcal{W}(r), \\
-Q^- &= C_{\mathrm{cool}} \rho T^{n},
-\end{align}
-with the same radial weight $\mathcal{W}(r)$ and optional time decay.
-This lightbulb model provides a controllable energy deposition profile,
-allowing systematic studies of shock revival thresholds and sensitivity
-to heating parameters. It is not a substitute for full transport, but
-is appropriate for controlled parametric exploration.
-\paragraph{Limitations and Assumptions.}
-The lightbulb model uses simplified attenuation and cooling laws and is
-not a replacement for multi-group neutrino transport.
-
-\subsection{Radiation--Plasma Coupling}
-Optional radiation coupling relaxes the gas temperature toward $T_{\rm rad}$:
-\begin{equation}
-\frac{dT}{dt} = -\lambda (T - T_{\rm rad}),
-\end{equation}
-with $T \approx p/\rho$ in code units and a configurable coupling rate.
-The coupling term is intentionally simple, intended to represent a
-relaxation toward an imposed radiation temperature. It can be used to
-study qualitative effects of radiative cooling/heating in jet or SN-lite
-contexts without the overhead of radiative transfer.
-\paragraph{Limitations and Assumptions.}
-This relaxation does not solve radiation transport and assumes a single
-imposed $T_{\\rm rad}$. It should be viewed as a qualitative coupling term.
-
-\section{Numerical Methods}
-\subsection{Overview}
-AstroFD uses a standard finite-volume method with reconstruction,
-Riemann solvers, and SSPRK time integration. The method is designed to be
-robust for shocks and discontinuities while remaining extensible to
-higher-order reconstructions.
-\subsection{Finite-Volume Discretization}
-We update cell-averaged conserved variables on a Cartesian mesh with
-ghost zones. The semi-discrete update is
-\begin{equation}
-\frac{d U_{i,j,k}}{dt} = -\frac{F^x_{i+1/2,j,k} - F^x_{i-1/2,j,k}}{\Delta x}
--\frac{F^y_{i,j+1/2,k} - F^y_{i,j-1/2,k}}{\Delta y}
--\frac{F^z_{i,j,k+1/2} - F^z_{i,j,k-1/2}}{\Delta z} + S_{i,j,k}.
-\end{equation}
-The timestep is set by a CFL constraint
-\begin{equation}
-\Delta t = C_{\mathrm{CFL}} \min\left(\frac{\Delta x}{a_{\max}}, \frac{\Delta y}{a_{\max}}, \frac{\Delta z}{a_{\max}}\right),
-\end{equation}
-where $a_{\max}$ is the maximum signal speed.
-Signal speeds are computed from the local state and the chosen physics
-model. The CFL condition is enforced globally at each step to maintain
-stability. For stiff source terms, additional subcycling is applied.
-
-\subsection{Reconstruction}
-Primitive variables are reconstructed to cell faces. MUSCL uses a limited
-slope
-\begin{equation}
-\Delta q_i = \phi(\Delta q_{i-1/2}, \Delta q_{i+1/2}),
-\end{equation}
-with MC/minmod/van Leer limiters. PPM and WENO5 are available for higher
-order accuracy \cite{colella1984, jiang1996}.
-For MUSCL, slope limiting suppresses spurious oscillations near shocks.
-PPM and WENO5 improve accuracy in smooth regions and are recommended for
-studies requiring higher-order convergence.
-
-\subsection{Riemann Solvers}
-HLLE provides a robust baseline. HLLC is used for hydro, and HLLD/full
-HLLD for RMHD \cite{toro1999, miyoshi2005}. The solver is selected at
-runtime.
-HLLE is the most robust choice for extreme conditions, while HLLC and
-HLLD provide improved resolution of contact and Alfv\'en waves. The
-selection can be tuned per experiment, and validation tests are provided
-to assess solver behavior.
-
-\subsection{Time Integration}
-We support SSPRK2 and SSPRK3 integration \cite{gottlieb2001}.
-SSPRK2 uses
-\begin{align}
-U^{(1)} &= U^n + \Delta t L(U^n), \\
-U^{n+1} &= \frac{1}{2} U^n + \frac{1}{2} \left(U^{(1)} + \Delta t L(U^{(1)})\right).
-\end{align}
-SSPRK3 is available for improved stability at higher order. The choice
-of RK order interacts with reconstruction order and should be validated
-through convergence tests for high-accuracy studies.
-
-\subsection{Source Term Coupling and IMEX}
-Source terms are applied with operator splitting. For stiff terms, we
-apply implicit relaxation with subcycled updates
-\begin{align}
-U^* &= U^n + \Delta t L(U^n), \\
-U^{n+1} &= U^* + \Delta t S(U^{n+1}).
-\end{align}
-For stiff relaxation, subcycling ensures stable integration of source
-terms without excessively limiting the global timestep. The number of
-subcycles can be configured or computed adaptively.
-
-\subsection{Primitive Recovery}
-Primitive recovery solves for $(\rho, p, v_i)$ given the conservative
-state. RMHD recovery uses iterative inversion with fallback strategies
-\cite{noble2006}.
-The recovery step is a common source of robustness issues in RMHD; the
-code therefore applies multiple fallback paths and safety floors to
-ensure physically admissible primitives.
-\paragraph{Related Work.}
-The numerical strategy follows common relativistic FV practice and is
-compatible with methods used in PLUTO, HARM, and ECHO
-\\cite{mignone2007, gammie2003, delzanna2007}. AstroFD emphasizes modular
-comparisons between reconstruction and solver choices within a single
-code base.
-
-\subsection{Floors, Caps, and Stability Controls}
-Density and pressure floors enforce positivity. Velocity caps limit $v$
-close to $c$ to avoid numerical blow-up. These controls are configurable
-and can be tightened during early testing.
-
-\section{Algorithm Summary}
-A single timestep proceeds as:
-\begin{enumerate}
-  \item Apply boundary conditions and nozzle inflow.
-  \item Reconstruct primitives to faces (MUSCL/PPM/WENO).
-  \item Solve Riemann problems at faces and compute fluxes.
-  \item Update conserved variables with flux divergence.
-  \item Apply source terms (gravity, GLM damping, dissipation, chemistry).
-  \item Recover primitives and enforce floors/caps.
-  \item Write diagnostics and outputs as configured.
-\end{enumerate}
-This algorithm is common to SRHD, RMHD, and GRHD/GRMHD modes, with
-additional source terms for the relevant physics modules. The modular
-structure allows direct comparisons between physics choices without
-altering the core update loop.
-
-\section{Boundary Conditions and Injection}
-Jet inflow is imposed at the x-min boundary with configurable nozzle
-profiles (top-hat, taper, parabolic) and optional perturbations to seed
-instabilities. The nozzle includes a shear layer of configurable
-thickness and optional magnetic fields (poloidal or toroidal) at the
-inlet.
-
-\section{Diagnostics}
-Diagnostics include maximum Lorentz factor, inlet energy and momentum
-fluxes, centerline profiles, divB statistics, SN shock radius and gain
-mass, cocoon pressure, mixing layer thickness, and optional performance
-counters. Diagnostics are written as CSV files in each run directory.
-Diagnostics are designed to capture both numerical health (e.g., divB
-levels, maximum Lorentz factor) and physically meaningful metrics (e.g.,
-gain mass and heating efficiency). These outputs facilitate rapid
-comparison across parameter studies and validation runs.
-\paragraph{Related Work.}
-Diagnostics are inspired by common jet and SN-lite metrics used in
-parameter surveys, emphasizing reproducibility and rapid comparison of
-model choices \\cite{janka2012}.
-
-\section{Verification and Validation}
+\section{Validation and Demonstrations}
 We track qualitative stability and quantitative thresholds in validation
 scripts. Error norms are defined as
 \begin{align}
@@ -545,46 +430,8 @@ Validation suites cover reconstruction and limiter behavior, Riemann
 solver checks, GR Kerr-Schild runs, orthonormal flux evaluation, restart
 regression, and SN-lite tests (freefall, Sedov, stalled shock, and
 lightbulb heating). These tests are automated in \texttt{tools/}.
-Validation is ongoing and intended to support quantitative comparisons
-across solvers and reconstructions. The current suite provides regression
-coverage and sanity checks; future work will extend convergence studies
-and standardized benchmark comparisons.
-\paragraph{Related Work.}
-Planned convergence studies and benchmark coverage align with standard
-test suites used across relativistic hydro and MHD codes
-\\cite{marti1999, miyoshi2005, font2008}.
 
-\section{Configuration and Reproducibility}
-All physics and numerics options are set through JSON configuration
-files. Outputs are organized by timestamp under \texttt{results/}. The
-code records diagnostics in CSV for post-processing and comparison.
-
-\subsection{Recommended Configuration Table}
-Table \ref{tab:config-summary} lists a compact reference of commonly
-used configuration switches and suggested values for jets and SN-lite.
-
-\begin{table}[ht]
-\centering
-\begin{tabular}{l l l}
-\hline
-Key & Jet default & SN-lite default \\
-\hline
-PHYSICS & rmhd & sn \\
-RECON & ppm & muscl \\
-RIEMANN & hlld\_full & hlle \\
-RK\_ORDER & 3 & 2 \\
-GLM\_CH, GLM\_CP & 1.0, 0.1 & n/a \\
-TWO\_TEMPERATURE & true & true \\
-CHEMISTRY\_ENABLED & true & true \\
-RESISTIVE\_ENABLED & false & false \\
-NEUTRINO\_ENABLED & false & true \\
-\hline
-\end{tabular}
-\caption{Compact configuration reference for typical jet and SN-lite runs.}
-\label{tab:config-summary}
-\end{table}
-
-\section{Example Workflows and Results}
+\section{Example Results}
 This section includes example figures and a compact diagnostics summary
 table generated from the latest validation run. The figures can be
 regenerated with \texttt{tools/make\_doc\_figures.py}.
@@ -620,6 +467,24 @@ regenerated with \texttt{tools/make\_doc\_figures.py}.
 \subsection{Diagnostics Summary Table}
 \input{figures/validation_summary.tex}
 
+\section{Discussion}\label{sec:discussion}
+AstroFD emphasizes transparent, modular physics and numerical methods to
+support controlled studies. The current implementation uses fixed
+spacetime metrics and parameterized SN-lite heating; these choices allow
+rapid iteration and reproducibility but do not replace full radiation
+transport or dynamic spacetime evolution. Future work will incorporate
+more detailed EOS options, expanded benchmark suites, and more complete
+transport models.
+
+\section{Conclusion}
+We presented AstroFD, a modular relativistic solver designed for
+systematic comparisons across physics models and numerical schemes. The
+code supports SRHD/RMHD/GRHD/GRMHD on fixed backgrounds, optional causal
+dissipation, two-temperature coupling, non-equilibrium chemistry, and
+SN-lite source terms. Validation tools and configuration tables are
+provided to facilitate reproducible studies and to serve as a foundation
+for future extensions.
+
 \appendix
 \section{Valencia Derivation Details}
 Let $n^\mu$ be the unit normal to constant-time slices and
@@ -634,47 +499,12 @@ S_{ij} &= T^{\mu\nu} \gamma_{\mu i} \gamma_{\nu j}.
 For ideal MHD, $b^\mu$ satisfies $b^\mu u_\mu = 0$, and the ideal electric
 field is $\mathbf{E} = -\mathbf{v} \times \mathbf{B}$. The Valencia system
 then follows from projecting $\nabla_\mu T^{\mu\nu} = 0$ along $n^\nu$ and
-within the spatial hypersurface. The code uses analytic fixed metrics,
-so $\alpha$, $\beta^i$, $\gamma_{ij}$, and Christoffel symbols are
-computed analytically for each supported background.
+within the spatial hypersurface.
 
 \section{Configuration Parameters}
 Tables in this section list the default configuration keys from
 \texttt{utils/settings.py}. Units are code units unless stated otherwise.
 \input{figures/config_table.tex}
-
-\section{Paper Template Checklist}
-\subsection{Recommended Figures}
-\begin{itemize}
-  \item Jet density slice and Lorentz factor centerline profile.
-  \item RMHD divB control over time for representative runs.
-  \item Shock radius evolution for SN-lite scenarios.
-  \item Resolution study comparing MUSCL/PPM/WENO convergence.
-  \item GR metric validation plots (e.g., Kerr-Schild test case).
-\end{itemize}
-
-\subsection{Recommended Tables}
-\begin{itemize}
-  \item Configuration summary for each experiment class.
-  \item Diagnostics summary (max Gamma, divB, shock radius).
-  \item Convergence errors for scheme comparisons.
-\end{itemize}
-
-\subsection{Results Checklist}
-\begin{itemize}
-  \item State the EOS, reconstruction, Riemann solver, and time integrator.
-  \item Report CFL, grid resolution, and runtime stability settings.
-  \item Provide divB statistics for RMHD/GRMHD runs.
-  \item Report shock radius and heating efficiency for SN-lite runs.
-  \item Include convergence or resolution-sensitivity tests.
-  \item Archive configs and diagnostics alongside plots.
-\end{itemize}
-
-\section{Limitations and Future Work}
-Current limitations include static nested refinement (single rank),
-limited GRMHD benchmark coverage, and incomplete GPU acceleration for
-solver kernels. Planned improvements include expanded EOS options,
-quantitative convergence tests, and additional validation problems.
 
 \bibliographystyle{unsrt}
 \bibliography{astrofd_refs}
