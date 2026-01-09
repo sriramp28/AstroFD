@@ -97,7 +97,7 @@ def main():
         f.write("\\small\n")
         f.write("\\setlength{\\tabcolsep}{4pt}\n")
         f.write("\\begin{longtable}{p{0.32\\linewidth} p{0.15\\linewidth} p{0.45\\linewidth}}\n")
-        f.write("\\caption{Full configuration parameter defaults (from utils/settings.py).}\\\\label{tab:config-full}\\\\\n")
+        f.write("\\caption{Configuration parameter defaults (utils/settings.py).}\\\\label{tab:config-full}\\\\\n")
         f.write("\\hline\n")
         f.write("Key & Default & Notes \\\\\n")
         f.write("\\hline\n")
