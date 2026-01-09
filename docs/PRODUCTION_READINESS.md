@@ -35,7 +35,7 @@ production-grade. Items are grouped by priority.
 
 ## Engineering
 
-- CI pipelines (lint + smoke + validation + docs build).
+- CI pipelines (quick smoke + docs build in place; expand to lint + full validation).
 - Structured logging and metadata outputs.
 - Release tagging and semantic versioning.
 

@@ -141,6 +141,12 @@ Quick mode:
 python tools/run_validation_suite.py --quick
 ```
 
+CI uses the quick mode on each push. For a local CI-like run:
+
+```bash
+scripts/ci_quick.sh
+```
+
 ## Documentation
 
 - `docs/USER_GUIDE.md`: setup, usage, troubleshooting
