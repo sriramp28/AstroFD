@@ -18,6 +18,7 @@ def load_settings():
         T_END=0.25, OUT_EVERY=50, PRINT_EVERY=10,
         NG=2, CFL=0.35, GAMMA=5.0/3.0,
         HALO_EXCHANGE="blocking",
+        BC_X="outflow",
         # jet physics
         JET_RADIUS=0.12,
         JET_CENTER=None,
@@ -26,6 +27,7 @@ def load_settings():
         NOZZLE_TURB=True, TURB_VAMP=0.02, TURB_PAMP=0.00,
         NOZZLE_PROFILE="top_hat",
         NOZZLE_PERTURB=None,
+        NOZZLE_ENABLED=True,
         RECON="muscl",
         LIMITER="mc",
         RIEMANN="hlle",
@@ -118,6 +120,10 @@ def load_settings():
         RMHD_RIEMANN_X0=0.5,
         RMHD_RIEMANN_LEFT=None,
         RMHD_RIEMANN_RIGHT=None,
+        HYDRO_INIT="uniform",
+        HYDRO_RIEMANN_X0=0.5,
+        HYDRO_RIEMANN_LEFT=None,
+        HYDRO_RIEMANN_RIGHT=None,
         # GR placeholders
         GR_METRIC="minkowski",   # "minkowski" | "schwarzschild" | "kerr-schild"
         GR_MASS=1.0,
@@ -286,6 +292,10 @@ def load_settings():
             raise ValueError("ADAPTIVITY_ENABLED currently supports hydro/rmhd only.")
     if str(s.get("HALO_EXCHANGE", "blocking")).lower() not in ("blocking", "nonblocking"):
         raise ValueError("HALO_EXCHANGE must be 'blocking' or 'nonblocking'.")
+    bc_x = str(s.get("BC_X", "outflow")).lower()
+    if bc_x not in ("outflow", "periodic"):
+        raise ValueError("BC_X must be 'outflow' or 'periodic'.")
+    s["BC_X"] = bc_x
 
     # normalize nozzle perturbations: keep legacy NOZZLE_TURB behavior
     if s.get("NOZZLE_PERTURB") is None:

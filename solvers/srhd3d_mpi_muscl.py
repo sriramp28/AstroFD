@@ -11,6 +11,7 @@ import os
 import sys
 import glob
 import time
+import math
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -72,6 +73,7 @@ SHEAR_THICK   = settings["SHEAR_THICK"]
 NOZZLE_TURB   = settings["NOZZLE_TURB"]
 TURB_VAMP     = settings["TURB_VAMP"]
 TURB_PAMP     = settings["TURB_PAMP"]
+NOZZLE_ENABLED = bool(settings.get("NOZZLE_ENABLED", True))
 
 RHO_AMB       = settings["RHO_AMB"]
 P_AMB         = settings["P_AMB"]
@@ -104,6 +106,7 @@ ADAPTIVITY_MODE = str(settings.get("ADAPTIVITY_MODE", "nested_static")).lower()
 ADAPTIVITY_SUBCYCLES = settings.get("ADAPTIVITY_SUBCYCLES", None)
 ADAPTIVITY_UPDATE_EVERY = int(settings.get("ADAPTIVITY_UPDATE_EVERY", 10))
 HALO_EXCHANGE = str(settings.get("HALO_EXCHANGE", "blocking")).lower()
+BC_X = str(settings.get("BC_X", "outflow")).lower()
 N_TRACERS = int(settings.get("N_TRACERS", 0))
 TRACER_OFFSET = int(settings.get("TRACER_OFFSET", 5))
 TRACER_NAMES = settings.get("TRACER_NAMES", [])
@@ -289,6 +292,25 @@ def init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz):
         for ci, val in enumerate(SN_COMP_AMB_VALUES):
             pr[SN_COMP_OFFSET + ci, :, :, :] = val
 
+    if PHYSICS in ("hydro", "grhd"):
+        init = str(settings.get("HYDRO_INIT", "uniform")).lower()
+        if init == "riemann":
+            x_split = float(settings.get("HYDRO_RIEMANN_X0", 0.5 * Lx))
+            left = settings.get("HYDRO_RIEMANN_LEFT", [1.0, 0.0, 0.0, 0.0, 1.0])
+            right = settings.get("HYDRO_RIEMANN_RIGHT", [0.125, 0.0, 0.0, 0.0, 0.1])
+            if len(left) < 5:
+                left = list(left) + [0.0] * (5 - len(left))
+            if len(right) < 5:
+                right = list(right) + [0.0] * (5 - len(right))
+            for i in range(pr.shape[1]):
+                x = (x0 + (i - NG) + 0.5) * dx
+                vals = left if x < x_split else right
+                pr[0, i, :, :] = vals[0]
+                pr[1, i, :, :] = vals[1]
+                pr[2, i, :, :] = vals[2]
+                pr[3, i, :, :] = vals[3]
+                pr[4, i, :, :] = vals[4]
+
     if PHYSICS in ("rmhd", "grmhd"):
         init = str(settings.get("RMHD_INIT", "uniform")).lower()
         if init == "riemann":
@@ -311,6 +333,69 @@ def init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz):
                 pr[6, i, :, :] = vals[6]
                 pr[7, i, :, :] = vals[7]
                 pr[8, i, :, :] = vals[8]
+        elif init == "orszag_tang":
+            rho0 = float(settings.get("OT_RHO0", 1.0))
+            p0 = float(settings.get("OT_P0", 5.0 / 12.0))
+            v0 = float(settings.get("OT_V0", 1.0))
+            b0 = float(settings.get("OT_B0", 1.0))
+            for i in range(pr.shape[1]):
+                x = (x0 + (i - NG) + 0.5) * dx
+                for j in range(pr.shape[2]):
+                    y = (j - NG + 0.5) * dy
+                    vx = -v0 * math.sin(2.0 * math.pi * y / Ly)
+                    vy = v0 * math.sin(2.0 * math.pi * x / Lx)
+                    bx = -b0 * math.sin(2.0 * math.pi * y / Ly)
+                    by = b0 * math.sin(4.0 * math.pi * x / Lx)
+                    pr[0, i, j, :] = rho0
+                    pr[1, i, j, :] = vx
+                    pr[2, i, j, :] = vy
+                    pr[3, i, j, :] = 0.0
+                    pr[4, i, j, :] = p0
+                    pr[5, i, j, :] = bx
+                    pr[6, i, j, :] = by
+                    pr[7, i, j, :] = 0.0
+                    pr[8, i, j, :] = 0.0
+        elif init == "rotor":
+            rho_in = float(settings.get("ROTOR_RHO_IN", 10.0))
+            rho_out = float(settings.get("ROTOR_RHO_OUT", 1.0))
+            p0 = float(settings.get("ROTOR_P0", 1.0))
+            r0 = float(settings.get("ROTOR_R0", 0.1))
+            r1 = float(settings.get("ROTOR_R1", 0.2))
+            v0 = float(settings.get("ROTOR_V0", 2.0))
+            bx0 = float(settings.get("ROTOR_BX", 5.0))
+            by0 = float(settings.get("ROTOR_BY", 0.0))
+            center = settings.get("ROTOR_CENTER") or [0.5 * Lx, 0.5 * Ly]
+            cx, cy = float(center[0]), float(center[1])
+            for i in range(pr.shape[1]):
+                x = (x0 + (i - NG) + 0.5) * dx
+                for j in range(pr.shape[2]):
+                    y = (j - NG + 0.5) * dy
+                    r = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+                    if r <= r0:
+                        rho = rho_in
+                        vphi = v0
+                    elif r <= r1:
+                        frac = (r1 - r) / max(r1 - r0, 1e-12)
+                        rho = rho_out + (rho_in - rho_out) * frac
+                        vphi = v0 * frac
+                    else:
+                        rho = rho_out
+                        vphi = 0.0
+                    if r > 0.0:
+                        vx = -vphi * (y - cy) / r
+                        vy = vphi * (x - cx) / r
+                    else:
+                        vx = 0.0
+                        vy = 0.0
+                    pr[0, i, j, :] = rho
+                    pr[1, i, j, :] = vx
+                    pr[2, i, j, :] = vy
+                    pr[3, i, j, :] = 0.0
+                    pr[4, i, j, :] = p0
+                    pr[5, i, j, :] = bx0
+                    pr[6, i, j, :] = by0
+                    pr[7, i, j, :] = 0.0
+                    pr[8, i, j, :] = 0.0
 
     if PHYSICS == "sn":
         init = str(settings.get("SN_INIT", "uniform")).lower()
@@ -479,6 +564,9 @@ def main():
     dx, dy, dz = Lx/NX, Ly/NY, Lz/NZ
     ny_loc, nz_loc = NY, NZ
 
+    if BC_X == "periodic" and size != 1:
+        raise RuntimeError("BC_X=periodic is supported only for single-rank runs.")
+
     # allocate primitives
     pr = init_block(nx_loc, ny_loc, nz_loc, x0, dx, dy, dz)
     rng = np.random.default_rng(1234 + rank*777)
@@ -538,11 +626,15 @@ def main():
     if not restart_path:
         # initial BCs
         boundary.apply_periodic_yz(pr, NG)
-        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0 and PHYSICS != "sn":
-            nozzle.apply_nozzle_left_x(
-                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-            )
+        if BC_X == "periodic":
+            boundary.apply_periodic_x(pr, NG)
+        else:
+            if rank == size-1:
+                boundary.apply_outflow_right_x(pr, NG)
+            if NOZZLE_ENABLED and rank == 0 and PHYSICS != "sn":
+                nozzle.apply_nozzle_left_x(
+                    pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+                )
     if ADAPTIVITY_ENABLED and pr_f is not None:
         adaptivity.fill_fine_from_coarse(pr_f, pr, fine_info, NG)
 
@@ -581,22 +673,30 @@ def main():
         # halo exchange + BCs
         exchange_halos(pr, comm, left, right, HALO_EXCHANGE)
         boundary.apply_periodic_yz(pr, NG)
-        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0 and PHYSICS != "sn":
-            nozzle.apply_nozzle_left_x(
-                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-            )
+        if BC_X == "periodic":
+            boundary.apply_periodic_x(pr, NG)
+        else:
+            if rank == size-1:
+                boundary.apply_outflow_right_x(pr, NG)
+            if NOZZLE_ENABLED and rank == 0 and PHYSICS != "sn":
+                nozzle.apply_nozzle_left_x(
+                    pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+                )
 
         # advance one step
         pr = advance_block(pr, dx, dy, dz, dt, offs[rank], NG)
 
         # re-apply BCs after update
         boundary.apply_periodic_yz(pr, NG)
-        if rank == size-1: boundary.apply_outflow_right_x(pr, NG)
-        if rank == 0 and PHYSICS != "sn":
-            nozzle.apply_nozzle_left_x(
-                pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
-            )
+        if BC_X == "periodic":
+            boundary.apply_periodic_x(pr, NG)
+        else:
+            if rank == size-1:
+                boundary.apply_outflow_right_x(pr, NG)
+            if NOZZLE_ENABLED and rank == 0 and PHYSICS != "sn":
+                nozzle.apply_nozzle_left_x(
+                    pr, dx, dy, dz, ny_loc, nz_loc, JET_CENTER[1], JET_CENTER[2], rng, settings
+                )
         pr, menc, r_edges = apply_sources(pr, dt, dx, dy, dz, offs[rank], NG, t, step, menc, r_edges, comm)
 
         # nested refinement update (single-rank)

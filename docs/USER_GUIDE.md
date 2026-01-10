@@ -148,6 +148,7 @@ common across configurations.
 - `NOZZLE_TURB`: enable inlet perturbations.
 - `NOZZLE_PERTURB`: `random`, `sinusoidal`.
 - `TURB_VAMP`, `TURB_PAMP`: perturbation amplitudes.
+- `NOZZLE_ENABLED`: enable/disable nozzle injection (useful for test problems).
 - `GAMMA_JET`, `ETA_RHO`, `P_EQ`: jet parameters.
 - `RHO_AMB`, `P_AMB`, `VX_AMB`, `VY_AMB`, `VZ_AMB`: ambient state.
 
@@ -158,6 +159,7 @@ common across configurations.
 - `RIEMANN`: `hlle`, `hllc`, `hlld`, `hlld_full`.
 - `RK_ORDER`: `2` or `3`.
 - `HALO_EXCHANGE`: `blocking` or `nonblocking`.
+- `BC_X`: `outflow` (default) or `periodic` (single-rank only).
 - `NG`: ghost zones.
 - `P_MAX`, `V_MAX`: safety caps.
 
@@ -184,10 +186,14 @@ common across configurations.
 - `CHEMISTRY_ENABLED`: H/He ionization network.
 - `RESISTIVE_ENABLED`, `RESISTIVITY`: resistive RMHD.
 - `NONIDEAL_MHD_ENABLED`: Hall/ambipolar/hyper-resistive terms.
-- `RMHD_INIT`: `uniform` or `riemann` (1D RMHD shock-tube setup).
+- `RMHD_INIT`: `uniform`, `riemann`, `orszag_tang`, `rotor`.
 - `RMHD_RIEMANN_X0`: split location in x for the Riemann problem.
 - `RMHD_RIEMANN_LEFT`, `RMHD_RIEMANN_RIGHT`: 9-component RMHD states
   `[rho, vx, vy, vz, p, Bx, By, Bz, psi]`.
+- `HYDRO_INIT`: `uniform` or `riemann` (1D hydro shock-tube setup).
+- `HYDRO_RIEMANN_X0`: split location in x for hydro Riemann problem.
+- `HYDRO_RIEMANN_LEFT`, `HYDRO_RIEMANN_RIGHT`: 5-component hydro states
+  `[rho, vx, vy, vz, p]`.
 
 Passive tracers:
 - `N_TRACERS`: number of passive scalars.

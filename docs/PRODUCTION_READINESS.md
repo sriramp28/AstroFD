@@ -8,6 +8,7 @@ production-grade. Items are grouped by priority.
 - Standard SRHD/RMHD shock tube suite (1D/2D) with error norms.
 - Baseline regression checks (initial hydro + RMHD cases in place; expand coverage).
 - SN-lite and GR baselines now tracked; expand to more cases and higher resolutions.
+- Orszag–Tang and RMHD rotor configs added; still need quantitative error norms.
 - RMHD Orszag-Tang vortex and rotor tests.
 - Alfvén and fast/slow magnetosonic convergence tests.
 - GRMHD benchmarks (magnetized Bondi, Fishbone-Moncrief torus).

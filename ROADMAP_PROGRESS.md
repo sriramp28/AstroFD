@@ -37,3 +37,4 @@ This file tracks the current plan and completion status so work can resume easil
 - GPU backend (post-processing tools) now supports optional CuPy acceleration.
 - Baseline regression checks added for small hydro/RMHD cases.
 - Baseline regression checks expanded to SN-lite and GR cases; MPI restart validation added.
+- New validation configs added for hydro/RMHD Riemann, Orszag–Tang, and RMHD rotor tests.

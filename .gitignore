@@ -21,6 +21,7 @@ diagnostics.csv
 
 # Logs
 *.log
+logs_*/
 
 # LaTeX build artifacts
 *.aux

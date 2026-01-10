@@ -12,7 +12,11 @@ import numpy as np
 
 CASES = [
     ("hydro_hllc_small", "config/config_hllc_small.json", {}),
+    ("hydro_riemann", "config/config_hydro_riemann.json", {}),
     ("rmhd_hlld_full", "config/config_hlld_full.json", {}),
+    ("rmhd_riemann_small", "config/config_rmhd_riemann_small.json", {}),
+    ("rmhd_orszag_tang", "config/config_rmhd_orszag_tang.json", {}),
+    ("rmhd_rotor", "config/config_rmhd_rotor.json", {}),
     ("grhd_small", "config/config_grhd.json", {"NX": 8, "NY": 8, "NZ": 8, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
     ("grmhd_small", "config/config_grmhd.json", {"NX": 8, "NY": 8, "NZ": 8, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
     ("sn_lite_small", "config/config_sn_lite.json", {"NX": 16, "NY": 16, "NZ": 16, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
@@ -177,6 +181,7 @@ def _write_temp_config(cfg):
     if "NOZZLE_TURB" in cfg:
         cfg["NOZZLE_TURB"] = False
     cfg["NOZZLE_PERTURB"] = "none"
+    cfg["NOZZLE_ENABLED"] = False
     fd, path = tempfile.mkstemp(prefix="astrofd_cfg_", suffix=".json")
     os.close(fd)
     with open(path, "w") as f:

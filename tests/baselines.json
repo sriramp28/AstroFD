@@ -3,11 +3,11 @@
     "grhd_small": {
       "config": "config/config_grhd.json",
       "metrics": {
-        "inlet_flux_abs": 3.5235566829429745e-06,
+        "inlet_flux_abs": 0.000251348676564627,
         "max_gamma": 1.003663458317374,
-        "max_v": 0.08536304601862968,
-        "mean_p": 0.010052922600932077,
-        "mean_rho": 0.9999520328003021
+        "max_v": 0.08536304601862969,
+        "mean_p": 0.010038593348519477,
+        "mean_rho": 0.9999414615564994
       },
       "physics": "grhd",
       "tolerances": {
@@ -60,14 +60,14 @@
     "grmhd_small": {
       "config": "config/config_grmhd.json",
       "metrics": {
-        "max_b": 3.284326464703739e-05,
+        "max_b": 0.0,
         "max_gamma": 1.0000129482294102,
-        "max_psi": 0.0002649071842600529,
+        "max_psi": 0.0,
         "max_v": 0.005088806919012365,
-        "mean_b": 2.68793760670022e-07,
-        "mean_p": 0.01000841751963151,
-        "mean_rho": 1.0000117302281868,
-        "rel_divb": 72.45507462779909
+        "mean_b": 0.0,
+        "mean_p": 0.009999988326984606,
+        "mean_rho": 0.9999994143070035,
+        "rel_divb": 0.0
       },
       "physics": "grmhd",
       "tolerances": {
@@ -120,11 +120,68 @@
     "hydro_hllc_small": {
       "config": "config/config_hllc_small.json",
       "metrics": {
-        "inlet_flux_abs": 0.0002550867801246549,
-        "max_gamma": 1.0000078257471796,
-        "max_v": 0.003956173736612741,
-        "mean_p": 0.010014440970601526,
-        "mean_rho": 1.0000156814947525
+        "inlet_flux_abs": 0.0,
+        "max_gamma": 1.0,
+        "max_v": 0.0,
+        "mean_p": 0.009999999999999936,
+        "mean_rho": 1.0
+      },
+      "physics": "hydro",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "hydro_riemann": {
+      "config": "config/config_hydro_riemann.json",
+      "metrics": {
+        "inlet_flux_abs": 0.0,
+        "max_gamma": 1.0400328426842829,
+        "max_v": 0.27477659701975204,
+        "mean_p": 0.5505642517425414,
+        "mean_rho": 0.5623388353767175
       },
       "physics": "hydro",
       "tolerances": {
@@ -178,13 +235,193 @@
       "config": "config/config_hlld_full.json",
       "metrics": {
         "max_b": 1.1180364054047385,
-        "max_gamma": 70.71244595191452,
+        "max_gamma": 70.71244595193414,
         "max_psi": 6.619302552975093e-05,
-        "max_v": 0.9999,
-        "mean_b": 1.1148402540236821,
-        "mean_p": 0.2873463410342356,
-        "mean_rho": 0.436299001374674,
-        "rel_divb": 0.028006049103057044
+        "max_v": 0.9999000000000001,
+        "mean_b": 1.1151070949663762,
+        "mean_p": 0.28747544429968036,
+        "mean_rho": 0.43624785047350306,
+        "rel_divb": 0.00011357710709730025
+      },
+      "physics": "rmhd",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "rmhd_orszag_tang": {
+      "config": "config/config_rmhd_orszag_tang.json",
+      "metrics": {
+        "max_b": 1.4294642107984765,
+        "max_gamma": 22.366272042130614,
+        "max_psi": 0.0019383393450626272,
+        "max_v": 0.9990000000000001,
+        "mean_b": 0.9594668799443377,
+        "mean_p": 0.3733158709252277,
+        "mean_rho": 0.8751609058068526,
+        "rel_divb": 0.0002520538266201209
+      },
+      "physics": "rmhd",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "rmhd_riemann_small": {
+      "config": "config/config_rmhd_riemann_small.json",
+      "metrics": {
+        "max_b": 1.118033988749895,
+        "max_gamma": 22.366272042129992,
+        "max_psi": 0.0159030188396121,
+        "max_v": 0.9990000000000001,
+        "mean_b": 1.102939105248655,
+        "mean_p": 0.5149932459775662,
+        "mean_rho": 0.5255195688021509,
+        "rel_divb": 0.00011753361802182637
+      },
+      "physics": "rmhd",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "rmhd_rotor": {
+      "config": "config/config_rmhd_rotor.json",
+      "metrics": {
+        "max_b": 6.175742020705779,
+        "max_gamma": 22.366272042129992,
+        "max_psi": 0.2641458944484704,
+        "max_v": 0.9990000000000001,
+        "mean_b": 5.003343060930817,
+        "mean_p": 0.9409077135104058,
+        "mean_rho": 1.6293465402419256,
+        "rel_divb": 0.0032016107303722064
       },
       "physics": "rmhd",
       "tolerances": {

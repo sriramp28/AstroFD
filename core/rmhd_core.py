@@ -277,7 +277,7 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     for attempt in range(2):
         if attempt == 1:
             Z = Z1
-        for _ in range(50):
+        for _ in range(80):
             f = rmhd_f_of_Z(Z, D, tau, B2, SB, S2)
             if np.abs(f) < 1e-10 * max(1.0, tau):
                 ok = True
@@ -305,7 +305,7 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
         Zmax = max(Z, Z1, 1.0)
         fmin = rmhd_f_of_Z(Zmin, D, tau, B2, SB, S2)
         fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
-        for _ in range(40):
+        for _ in range(60):
             if fmin * fmax <= 0.0:
                 break
             Zmax *= 2.0
@@ -324,6 +324,13 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
                     Zmin = Zmid
                     fmin = fmid
                 Z = 0.5*(Zmin + Zmax)
+        else:
+            status |= 2
+            rho, vx, vy, vz, p = rho0, vx0, vy0, vz0, p0
+            rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
+                rho, vx, vy, vz, p, Bx, By, Bz, psi
+            )
+            return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
 
     # recover velocities
     ZpB = Z + B2
