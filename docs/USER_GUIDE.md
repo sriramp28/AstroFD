@@ -258,6 +258,7 @@ python tools/run_validation_suite.py --quick
 Targeted suites:
 - `python tools/validate_schemes.py`
 - `python tools/validate_hlld.py`
+- `python tools/validate_error_norms.py`
 - `python tools/validate_gr.py`
 - `python tools/validate_gr_orthonormal.py`
 - `python tools/validate_restart.py`

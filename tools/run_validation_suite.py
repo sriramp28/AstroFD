@@ -8,6 +8,7 @@ STEPS = [
     ("smoke", ["python", "tools/run_smoke_suite.py"]),
     ("schemes", ["python", "tools/validate_schemes.py"]),
     ("baselines", ["python", "tools/validate_baselines.py"]),
+    ("error_norms", ["python", "tools/validate_error_norms.py"]),
     ("hlld", ["python", "tools/validate_hlld.py"]),
     ("nonideal", ["python", "tools/validate_nonideal.py"]),
     ("gr", ["python", "tools/validate_gr.py"]),
@@ -64,7 +65,11 @@ def main():
             continue
         if name == "restart_mpi" and args.quick:
             continue
+        if name == "error_norms" and args.quick:
+            continue
         if name in ("hlld", "rmhd_recovery") and args.skip_rmhd:
+            continue
+        if name == "error_norms" and args.skip_rmhd:
             continue
         if name == "nonideal" and args.skip_rmhd:
             continue

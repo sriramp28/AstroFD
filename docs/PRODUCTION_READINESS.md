@@ -5,7 +5,7 @@ production-grade. Items are grouped by priority.
 
 ## Validation and Verification
 
-- Standard SRHD/RMHD shock tube suite (1D/2D) with error norms.
+- Initial SRHD shock tube + RMHD Orszag–Tang error-norm checks in place; expand to full suite and convergence.
 - Baseline regression checks (initial hydro + RMHD cases in place; expand coverage).
 - SN-lite and GR baselines now tracked; expand to more cases and higher resolutions.
 - Orszag–Tang and RMHD rotor configs added; still need quantitative error norms.

@@ -153,6 +153,18 @@ To refresh baselines after controlled updates:
 python tools/validate_baselines.py --update
 ```
 
+Error-norm regression checks (shock tube + Orszag–Tang):
+
+```bash
+python tools/validate_error_norms.py
+```
+
+To refresh error-norm references after controlled updates:
+
+```bash
+python tools/validate_error_norms.py --update
+```
+
 CI uses the quick mode on each push. For a local CI-like run:
 
 ```bash
