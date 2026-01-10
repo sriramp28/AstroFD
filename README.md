@@ -159,6 +159,8 @@ CI uses the quick mode on each push. For a local CI-like run:
 scripts/ci_quick.sh
 ```
 
+Nightly CI runs the full validation suite (including baselines and MPI restart checks).
+
 ## Documentation
 
 - `docs/USER_GUIDE.md`: setup, usage, troubleshooting

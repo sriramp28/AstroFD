@@ -36,3 +36,4 @@ This file tracks the current plan and completion status so work can resume easil
 - Diagnostics thresholds tightened (divB rel default 100, SN eff default 5).
 - GPU backend (post-processing tools) now supports optional CuPy acceleration.
 - Baseline regression checks added for small hydro/RMHD cases.
+- Baseline regression checks expanded to SN-lite and GR cases; MPI restart validation added.

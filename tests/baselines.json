@@ -1,16 +1,20 @@
 {
   "cases": {
-    "hydro_hllc_small": {
-      "config": "config/config_hllc_small.json",
+    "grhd_small": {
+      "config": "config/config_grhd.json",
       "metrics": {
-        "inlet_flux_abs": 0.0002550867801246549,
-        "max_gamma": 1.0000078257471796,
-        "max_v": 0.003956173736612741,
-        "mean_p": 0.010014440970601526,
-        "mean_rho": 1.0000156814947525
+        "inlet_flux_abs": 3.5235566829429745e-06,
+        "max_gamma": 1.003663458317374,
+        "max_v": 0.08536304601862968,
+        "mean_p": 0.010052922600932077,
+        "mean_rho": 0.9999520328003021
       },
-      "physics": "hydro",
+      "physics": "grhd",
       "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
         "inlet_flux_abs": {
           "abs": 1e-06,
           "rel": 0.1
@@ -46,6 +50,127 @@
         "rel_divb": {
           "abs": 1e-06,
           "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "grmhd_small": {
+      "config": "config/config_grmhd.json",
+      "metrics": {
+        "max_b": 3.284326464703739e-05,
+        "max_gamma": 1.0000129482294102,
+        "max_psi": 0.0002649071842600529,
+        "max_v": 0.005088806919012365,
+        "mean_b": 2.68793760670022e-07,
+        "mean_p": 0.01000841751963151,
+        "mean_rho": 1.0000117302281868,
+        "rel_divb": 72.45507462779909
+      },
+      "physics": "grmhd",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "hydro_hllc_small": {
+      "config": "config/config_hllc_small.json",
+      "metrics": {
+        "inlet_flux_abs": 0.0002550867801246549,
+        "max_gamma": 1.0000078257471796,
+        "max_v": 0.003956173736612741,
+        "mean_p": 0.010014440970601526,
+        "mean_rho": 1.0000156814947525
+      },
+      "physics": "hydro",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
         }
       }
     },
@@ -63,6 +188,10 @@
       },
       "physics": "rmhd",
       "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
         "inlet_flux_abs": {
           "abs": 1e-06,
           "rel": 0.1
@@ -98,6 +227,64 @@
         "rel_divb": {
           "abs": 1e-06,
           "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
+        }
+      }
+    },
+    "sn_lite_small": {
+      "config": "config/config_sn_lite.json",
+      "metrics": {
+        "heat_eff": 0.6,
+        "shock_radius": 0.0
+      },
+      "physics": "sn",
+      "tolerances": {
+        "heat_eff": {
+          "abs": 0.0001,
+          "rel": 0.2
+        },
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        },
+        "shock_radius": {
+          "abs": 0.001,
+          "rel": 0.1
         }
       }
     }

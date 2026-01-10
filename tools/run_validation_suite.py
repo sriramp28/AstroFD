@@ -13,6 +13,7 @@ STEPS = [
     ("gr", ["python", "tools/validate_gr.py"]),
     ("gr_ortho", ["python", "tools/validate_gr_orthonormal.py"]),
     ("restart", ["python", "tools/validate_restart.py"]),
+    ("restart_mpi", ["python", "tools/validate_restart_mpi.py"]),
     ("sn", ["python", "tools/run_sn_tests.py"]),
     ("eos", ["python", "tools/run_eos_smoke.py"]),
     ("rmhd_recovery", ["python", "tools/stress_rmhd_recovery.py", "--n", "200",
@@ -58,6 +59,8 @@ def main():
         if name == "gr_ortho" and args.quick:
             continue
         if name == "restart" and args.quick:
+            continue
+        if name == "restart_mpi" and args.quick:
             continue
         if name in ("hlld", "rmhd_recovery") and args.skip_rmhd:
             continue

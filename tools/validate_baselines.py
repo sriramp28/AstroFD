@@ -11,8 +11,11 @@ import numpy as np
 
 
 CASES = [
-    ("hydro_hllc_small", "config/config_hllc_small.json"),
-    ("rmhd_hlld_full", "config/config_hlld_full.json"),
+    ("hydro_hllc_small", "config/config_hllc_small.json", {}),
+    ("rmhd_hlld_full", "config/config_hlld_full.json", {}),
+    ("grhd_small", "config/config_grhd.json", {"NX": 8, "NY": 8, "NZ": 8, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
+    ("grmhd_small", "config/config_grmhd.json", {"NX": 8, "NY": 8, "NZ": 8, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
+    ("sn_lite_small", "config/config_sn_lite.json", {"NX": 16, "NY": 16, "NZ": 16, "T_END": 0.001, "OUT_EVERY": 1, "PRINT_EVERY": 1}),
 ]
 
 
@@ -26,6 +29,8 @@ DEFAULT_TOLS = {
     "max_b": {"rel": 1e-1, "abs": 1e-6},
     "max_psi": {"rel": 2e-1, "abs": 1e-5},
     "rel_divb": {"rel": 2e-1, "abs": 1e-6},
+    "shock_radius": {"rel": 1e-1, "abs": 1e-3},
+    "heat_eff": {"rel": 2e-1, "abs": 1e-4},
 }
 
 
@@ -157,8 +162,13 @@ def _compute_metrics_rmhd(npz_path):
 
 
 def _load_config(path):
-    with open(path, "r") as f:
-        return json.load(f)
+    try:
+        import json5
+        with open(path, "r") as f:
+            return json5.load(f)
+    except Exception:
+        with open(path, "r") as f:
+            return json.load(f)
 
 
 def _write_temp_config(cfg):
@@ -172,6 +182,30 @@ def _write_temp_config(cfg):
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2)
     return path
+
+
+def _write_temp_config_with_overrides(cfg, overrides):
+    cfg_tmp = dict(cfg)
+    if overrides:
+        cfg_tmp.update(overrides)
+    return _write_temp_config(cfg_tmp)
+
+
+def _latest_sn_diag(run_dir):
+    path = os.path.join(run_dir, "sn_diagnostics.csv")
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+    if len(lines) < 2:
+        return None
+    last = lines[-1].split(",")
+    if len(last) < 7:
+        return None
+    return {
+        "shock_radius": float(last[2]),
+        "heat_eff": float(last[6]),
+    }
 
 
 def _run_case(python, cfg_path):
@@ -188,7 +222,12 @@ def _run_case(python, cfg_path):
 
 def _get_metrics(run_dir, physics):
     npz = _latest_npz(run_dir)
-    if physics == "rmhd":
+    if physics == "sn":
+        sn = _latest_sn_diag(run_dir)
+        if sn is None:
+            raise SystemExit(f"missing sn_diagnostics.csv in {run_dir}")
+        return sn
+    if physics in ("rmhd", "grmhd"):
         return _compute_metrics_rmhd(npz)
     return _compute_metrics_hydro(npz)
 
@@ -219,10 +258,10 @@ def main():
 
     if args.update:
         out = {"cases": {}}
-        for name, cfg_path in CASES:
+        for name, cfg_path, overrides in CASES:
             cfg = _load_config(cfg_path)
             physics = str(cfg.get("PHYSICS", "hydro")).lower()
-            tmp_cfg = _write_temp_config(cfg)
+            tmp_cfg = _write_temp_config_with_overrides(cfg, overrides)
             try:
                 run_dir = _run_case(args.python, tmp_cfg)
             finally:
@@ -242,14 +281,14 @@ def main():
         raise SystemExit(f"missing baseline file: {args.baseline} (run with --update)")
     base = _load_json(args.baseline)
     errors = []
-    for name, cfg_path in CASES:
+    for name, cfg_path, overrides in CASES:
         if "cases" not in base or name not in base["cases"]:
             errors.append(f"{name}: missing in baseline file")
             continue
         entry = base["cases"][name]
         cfg = _load_config(cfg_path)
         physics = str(cfg.get("PHYSICS", entry.get("physics", "hydro"))).lower()
-        tmp_cfg = _write_temp_config(cfg)
+        tmp_cfg = _write_temp_config_with_overrides(cfg, overrides)
         try:
             run_dir = _run_case(args.python, tmp_cfg)
         finally:
