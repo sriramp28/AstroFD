@@ -141,6 +141,18 @@ Quick mode:
 python tools/run_validation_suite.py --quick
 ```
 
+Baseline regression checks (small hydro + RMHD cases):
+
+```bash
+python tools/validate_baselines.py
+```
+
+To refresh baselines after controlled updates:
+
+```bash
+python tools/validate_baselines.py --update
+```
+
 CI uses the quick mode on each push. For a local CI-like run:
 
 ```bash

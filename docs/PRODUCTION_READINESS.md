@@ -6,6 +6,7 @@ production-grade. Items are grouped by priority.
 ## Validation and Verification
 
 - Standard SRHD/RMHD shock tube suite (1D/2D) with error norms.
+- Baseline regression checks (initial hydro + RMHD cases in place; expand coverage).
 - RMHD Orszag-Tang vortex and rotor tests.
 - Alfvén and fast/slow magnetosonic convergence tests.
 - GRMHD benchmarks (magnetized Bondi, Fishbone-Moncrief torus).

@@ -7,6 +7,7 @@ import sys
 STEPS = [
     ("smoke", ["python", "tools/run_smoke_suite.py"]),
     ("schemes", ["python", "tools/validate_schemes.py"]),
+    ("baselines", ["python", "tools/validate_baselines.py"]),
     ("hlld", ["python", "tools/validate_hlld.py"]),
     ("nonideal", ["python", "tools/validate_nonideal.py"]),
     ("gr", ["python", "tools/validate_gr.py"]),

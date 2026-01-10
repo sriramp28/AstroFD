@@ -1,0 +1,105 @@
+{
+  "cases": {
+    "hydro_hllc_small": {
+      "config": "config/config_hllc_small.json",
+      "metrics": {
+        "inlet_flux_abs": 0.0002550867801246549,
+        "max_gamma": 1.0000078257471796,
+        "max_v": 0.003956173736612741,
+        "mean_p": 0.010014440970601526,
+        "mean_rho": 1.0000156814947525
+      },
+      "physics": "hydro",
+      "tolerances": {
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        }
+      }
+    },
+    "rmhd_hlld_full": {
+      "config": "config/config_hlld_full.json",
+      "metrics": {
+        "max_b": 1.1180364054047385,
+        "max_gamma": 70.71244595191452,
+        "max_psi": 6.619302552975093e-05,
+        "max_v": 0.9999,
+        "mean_b": 1.1148402540236821,
+        "mean_p": 0.2873463410342356,
+        "mean_rho": 0.436299001374674,
+        "rel_divb": 0.028006049103057044
+      },
+      "physics": "rmhd",
+      "tolerances": {
+        "inlet_flux_abs": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "max_gamma": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "max_psi": {
+          "abs": 1e-05,
+          "rel": 0.2
+        },
+        "max_v": {
+          "abs": 0.001,
+          "rel": 0.05
+        },
+        "mean_b": {
+          "abs": 1e-06,
+          "rel": 0.1
+        },
+        "mean_p": {
+          "abs": 1e-05,
+          "rel": 0.05
+        },
+        "mean_rho": {
+          "abs": 0.0001,
+          "rel": 0.05
+        },
+        "rel_divb": {
+          "abs": 1e-06,
+          "rel": 0.2
+        }
+      }
+    }
+  }
+}
