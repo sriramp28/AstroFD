@@ -548,7 +548,7 @@ def main():
 
     # --- DEBUG: JIT warm-up ---
     if DEBUG:
-        if PHYSICS == "hydro":
+        if PHYSICS in ("hydro", "sn"):
             _ = srhd_core.compute_rhs_muscl(pr, pr.shape[1], pr.shape[2], pr.shape[3], dx, dy, dz)
         elif PHYSICS == "rmhd":
             _ = rmhd_core.compute_rhs_rmhd(pr, pr.shape[1], pr.shape[2], pr.shape[3], dx, dy, dz)
