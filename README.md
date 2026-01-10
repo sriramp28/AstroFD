@@ -160,6 +160,7 @@ scripts/ci_quick.sh
 ```
 
 Nightly CI runs the full validation suite (including baselines and MPI restart checks).
+If a CI run fails, open the Actions log and look for the first non-zero exit step.
 
 ## Documentation
 

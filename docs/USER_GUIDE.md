@@ -292,6 +292,9 @@ python tools/gen_config_table.py
 
 - MPI warnings about socket binding can appear in sandboxed or restricted
   environments; runs typically complete despite the warnings.
+- CI failures are based on non-zero exit codes; warnings do not fail runs.
+- For nightly CI failures, check the first failed step in the Actions log and
+  rerun that tool locally with the same command.
 - If a run crashes early, reduce `CFL` and tighten `P_MAX`/`V_MAX`.
 - For large grids, disable `DEBUG` and reduce output cadence.
 - For CuPy backends, ensure the CUDA toolkit is installed and compatible
