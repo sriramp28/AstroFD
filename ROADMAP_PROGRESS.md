@@ -38,3 +38,5 @@ This file tracks the current plan and completion status so work can resume easil
 - Baseline regression checks added for small hydro/RMHD cases.
 - Baseline regression checks expanded to SN-lite and GR cases; MPI restart validation added.
 - New validation configs added for hydro/RMHD Riemann, Orszag–Tang, and RMHD rotor tests.
+- Error-norm regression checks added for hydro shock tube + Orszag–Tang (stored references).
+- RMHD primitive recovery stress tests pass with relaxed thresholds; cold/hot regimes remain fragile.

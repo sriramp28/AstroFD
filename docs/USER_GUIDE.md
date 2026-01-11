@@ -255,6 +255,12 @@ Quick mode:
 python tools/run_validation_suite.py --quick
 ```
 
+Skip MPI restart checks (restricted MPI environments):
+
+```bash
+python tools/run_validation_suite.py --skip-restart-mpi
+```
+
 Targeted suites:
 - `python tools/validate_schemes.py`
 - `python tools/validate_hlld.py`

@@ -141,6 +141,12 @@ Quick mode:
 python tools/run_validation_suite.py --quick
 ```
 
+Skip MPI restart checks (useful in restricted MPI environments):
+
+```bash
+python tools/run_validation_suite.py --skip-restart-mpi
+```
+
 Baseline regression checks (small hydro + RMHD cases):
 
 ```bash
