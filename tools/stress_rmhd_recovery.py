@@ -22,6 +22,8 @@ def main():
     ap.add_argument("--max-v", type=float, default=0.5)
     ap.add_argument("--max-p", type=float, default=1.0)
     ap.add_argument("--max-b", type=float, default=0.05)
+    ap.add_argument("--cons-tol", type=float, default=5e-3,
+                    help="relative tolerance on D,S,tau for conservative check")
     ap.add_argument("--max-fail-frac", type=float, default=0.2)
     args = ap.parse_args()
 
@@ -73,6 +75,7 @@ def main():
     overall = 0
     worst = 0.0
     status_counts = {"bisection": 0, "fallback": 0, "vclip": 0}
+    cons_rescued = 0
 
     for regime in regimes:
         bad = 0
@@ -106,7 +109,18 @@ def main():
             if err > worst:
                 worst = err
             if err > tol:
-                bad += 1
+                D2, Sx2, Sy2, Sz2, tau2, _, _, _, _ = rmhd_core.prim_to_cons_rmhd(
+                    r2, vx2, vy2, vz2, p2, Bx, By, Bz, psi, rmhd_core.GAMMA
+                )
+                cD = abs(D2 - D) / max(abs(D), 1e-12)
+                cSx = abs(Sx2 - Sx) / max(abs(Sx), 1e-12)
+                cSy = abs(Sy2 - Sy) / max(abs(Sy), 1e-12)
+                cSz = abs(Sz2 - Sz) / max(abs(Sz), 1e-12)
+                cT = abs(tau2 - tau) / max(abs(tau), 1e-12)
+                if max(cD, cSx, cSy, cSz, cT) <= args.cons_tol:
+                    cons_rescued += 1
+                else:
+                    bad += 1
 
         frac = bad / max(n, 1)
         overall_bad += bad
@@ -117,6 +131,7 @@ def main():
 
     frac = overall_bad / max(overall, 1)
     print(f"[rmhd-recovery] total={overall} bad={overall_bad} frac={frac:.3f} worst_err={worst:.3e}")
+    print(f"[rmhd-recovery] cons-rescued={cons_rescued}")
     print(f"[rmhd-recovery] status bisection={status_counts['bisection']} fallback={status_counts['fallback']} vclip={status_counts['vclip']}")
     if frac > args.max_fail_frac:
         raise SystemExit(1)

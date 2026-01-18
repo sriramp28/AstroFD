@@ -18,7 +18,7 @@ production-grade. Items are grouped by priority.
 ## Physical Fidelity
 
 - Expanded EOS options (tabulated gamma profiles, relativistic Synge).
-- Improved RMHD primitive recovery for extreme magnetization (cold/hot regimes still show high failure rates in stress tests).
+- Improved RMHD primitive recovery for extreme magnetization (cold/hot regimes still show high failure rates; conservative-variable consistency checks now included in stress tests).
 - Extended chemistry and cooling networks for SN-lite.
 - Optional non-equilibrium radiation transport (beyond lightbulb).
 

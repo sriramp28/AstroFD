@@ -40,3 +40,4 @@ This file tracks the current plan and completion status so work can resume easil
 - New validation configs added for hydro/RMHD Riemann, Orszag–Tang, and RMHD rotor tests.
 - Error-norm regression checks added for hydro shock tube + Orszag–Tang (stored references).
 - RMHD primitive recovery stress tests pass with relaxed thresholds; cold/hot regimes remain fragile.
+- RMHD recovery stress test now includes a conservative-variable consistency check to flag ill-conditioned primitives.

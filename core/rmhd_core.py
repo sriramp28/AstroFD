@@ -245,7 +245,6 @@ def rmhd_f_of_Z(Z, D, tau, B2, SB, S2):
     gamma = eos.gamma_eff(rho)
     p = (h - 1.0) * rho * (gamma - 1.0) / gamma
     if p < SMALL: p = SMALL
-    if p > P_MAX: p = P_MAX
     b2 = B2 / W2 + vb*vb
     tau_calc = Z - p + 0.5*B2 + 0.5*b2 - D
     return tau_calc - tau
@@ -277,6 +276,8 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     for attempt in range(2):
         if attempt == 1:
             Z = Z1
+        Zprev = Z
+        fprev = rmhd_f_of_Z(Zprev, D, tau, B2, SB, S2)
         for _ in range(80):
             f = rmhd_f_of_Z(Z, D, tau, B2, SB, S2)
             if np.abs(f) < 1e-10 * max(1.0, tau):
@@ -292,7 +293,17 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
             dZ = -f / dfdZ
             if dZ >  0.5*Z: dZ =  0.5*Z
             if dZ < -0.5*Z: dZ = -0.5*Z
-            Z += dZ
+            Znew = Z + dZ
+            # Secant fallback if Newton stagnates.
+            if np.abs(Znew - Z) < 1e-12 * max(1.0, Z):
+                denom = f - fprev
+                if denom != 0.0:
+                    Zsec = Z - f * (Z - Zprev) / denom
+                    if Zsec > SMALL:
+                        Znew = Zsec
+            Zprev = Z
+            fprev = f
+            Z = Znew
             if Z < SMALL:
                 Z = SMALL
         if ok:
@@ -301,15 +312,33 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     if not ok:
         # Fallback to bisection if Newton stalls.
         status |= 1
-        Zmin = SMALL
-        Zmax = max(Z, Z1, 1.0)
+        Zmin = max(D, SMALL)
+        Zmax = max(Z, Z1, D + tau + B2, 1.0)
         fmin = rmhd_f_of_Z(Zmin, D, tau, B2, SB, S2)
         fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
-        for _ in range(60):
-            if fmin * fmax <= 0.0:
-                break
-            Zmax *= 2.0
-            fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
+        # Scan in log-space to find a sign change if the endpoints agree.
+        if fmin * fmax > 0.0:
+            for _ in range(8):
+                Zlo = Zmin
+                flo = fmin
+                found = False
+                for i in range(40):
+                    frac = (i + 1.0) / 40.0
+                    Zi = Zmin * (Zmax / max(Zmin, SMALL))**frac
+                    fi = rmhd_f_of_Z(Zi, D, tau, B2, SB, S2)
+                    if flo * fi <= 0.0:
+                        Zmin = Zlo
+                        Zmax = Zi
+                        fmin = flo
+                        fmax = fi
+                        found = True
+                        break
+                    Zlo = Zi
+                    flo = fi
+                if found:
+                    break
+                Zmax *= 10.0
+                fmax = rmhd_f_of_Z(Zmax, D, tau, B2, SB, S2)
         if fmin * fmax <= 0.0:
             for _ in range(60):
                 Zmid = 0.5*(Zmin + Zmax)
@@ -325,12 +354,50 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
                     fmin = fmid
                 Z = 0.5*(Zmin + Zmax)
         else:
-            status |= 2
-            rho, vx, vy, vz, p = rho0, vx0, vy0, vz0, p0
-            rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
-                rho, vx, vy, vz, p, Bx, By, Bz, psi
-            )
-            return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
+            # If no sign change, accept the best point if the residual is small.
+            Zbest = Zmin
+            fbest = np.abs(fmin)
+            for i in range(60):
+                frac = (i + 1.0) / 60.0
+                Zi = Zmin * (Zmax / max(Zmin, SMALL))**frac
+                fi = rmhd_f_of_Z(Zi, D, tau, B2, SB, S2)
+                afi = np.abs(fi)
+                if afi < fbest:
+                    fbest = afi
+                    Zbest = Zi
+            if fbest < 1e-8 * max(1.0, tau):
+                Z = Zbest
+            else:
+                # Last-resort attempt: use the best Z guess even without a sign change.
+                Z = Zbest
+                ZpB = Z + B2
+                vb = SB / max(Z, SMALL)
+                vx = (Sx + vb*Bx) / max(ZpB, SMALL)
+                vy = (Sy + vb*By) / max(ZpB, SMALL)
+                vz = (Sz + vb*Bz) / max(ZpB, SMALL)
+                v2 = vx*vx + vy*vy + vz*vz
+                vmax2 = V_MAX*V_MAX
+                if v2 >= vmax2:
+                    status |= 4
+                    fac = V_MAX / np.sqrt(v2 + 1e-32)
+                    vx *= fac; vy *= fac; vz *= fac
+                W = 1.0 / np.sqrt(1.0 - (vx*vx + vy*vy + vz*vz))
+                rho = D / max(W, SMALL)
+                h = Z / max(rho*W*W, SMALL)
+                gamma = eos.gamma_eff(rho)
+                p = (h - 1.0) * rho * (gamma - 1.0) / gamma
+                if np.isfinite(rho) and np.isfinite(p) and rho > 0.0 and p > 0.0:
+                    status |= 2
+                    rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
+                        rho, vx, vy, vz, p, Bx, By, Bz, psi
+                    )
+                    return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
+                status |= 2
+                rho, vx, vy, vz, p = rho0, vx0, vy0, vz0, p0
+                rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
+                    rho, vx, vy, vz, p, Bx, By, Bz, psi
+                )
+                return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
 
     # recover velocities
     ZpB = Z + B2
