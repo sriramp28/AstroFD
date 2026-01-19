@@ -250,6 +250,54 @@ def rmhd_f_of_Z(Z, D, tau, B2, SB, S2):
     return tau_calc - tau
 
 @nb.njit(fastmath=True)
+def _pressure_newton_recovery(D, Sx, Sy, Sz, tau, Bx, By, Bz, p_init, W_init):
+    B2 = Bx*Bx + By*By + Bz*Bz
+    SB = Sx*Bx + Sy*By + Sz*Bz
+    S2 = Sx*Sx + Sy*Sy + Sz*Sz
+    p = max(p_init, SMALL)
+    W = max(W_init, 1.0)
+
+    for _ in range(40):
+        # Fixed-point update of W for current pressure.
+        for _ in range(4):
+            rho = D / max(W, SMALL)
+            gamma = eos.gamma_eff(rho)
+            a = gamma / (gamma - 1.0)
+            h = 1.0 + a * p / max(rho, SMALL)
+            Z = D * h * W
+            denomZ = max(Z, SMALL)
+            ZpB = Z + B2
+            v2 = (S2 + (SB*SB) * (2.0*Z + B2) / (denomZ*denomZ)) / (ZpB*ZpB + SMALL)
+            vmax2 = V_MAX*V_MAX
+            if v2 >= vmax2:
+                v2 = vmax2 - 1e-14
+            W = 1.0 / np.sqrt(1.0 - v2)
+
+        rho = D / max(W, SMALL)
+        gamma = eos.gamma_eff(rho)
+        a = gamma / (gamma - 1.0)
+        h = 1.0 + a * p / max(rho, SMALL)
+        Z = D * h * W
+        b2 = B2 / (W*W) + (SB*SB) / (Z*Z + SMALL)
+        tau_calc = Z - p + 0.5*B2 + 0.5*b2 - D
+        f = tau_calc - tau
+        if np.abs(f) < 1e-10 * max(1.0, tau):
+            return True, Z, W, p
+
+        dZdp = a * W * W
+        db2dp = -2.0 * (SB*SB) / (Z*Z*Z + SMALL) * dZdp
+        dfdp = dZdp - 1.0 + 0.5 * db2dp
+        if dfdp == 0.0:
+            break
+        dp = -f / dfdp
+        if dp > 0.5*p: dp = 0.5*p
+        if dp < -0.5*p: dp = -0.5*p
+        p = p + dp
+        if p < SMALL:
+            p = SMALL
+    return False, Z, W, p
+
+@nb.njit(fastmath=True)
 def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     # Improved recovery: solve for Z = rho h W^2 using a damped Newton iteration.
     # status bits: 1=bisection used, 2=fallback to hydro, 4=velocity clipped.
@@ -398,6 +446,30 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
                     rho, vx, vy, vz, p, Bx, By, Bz, psi
                 )
                 return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
+
+    if not ok:
+        status |= 2
+        okp, Zp, Wp, pp = _pressure_newton_recovery(D, Sx, Sy, Sz, tau, Bx, By, Bz, p0, W0)
+        if okp:
+            Z = Zp
+            W = Wp
+            rho = D / max(W, SMALL)
+            p = pp
+            ZpB = Z + B2
+            vb = SB / max(Z, SMALL)
+            vx = (Sx + vb*Bx) / max(ZpB, SMALL)
+            vy = (Sy + vb*By) / max(ZpB, SMALL)
+            vz = (Sz + vb*Bz) / max(ZpB, SMALL)
+            v2 = vx*vx + vy*vy + vz*vz
+            vmax2 = V_MAX*V_MAX
+            if v2 >= vmax2:
+                status |= 4
+                fac = V_MAX / np.sqrt(v2 + 1e-32)
+                vx *= fac; vy *= fac; vz *= fac
+            rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
+                rho, vx, vy, vz, p, Bx, By, Bz, psi
+            )
+            return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
 
     # recover velocities
     ZpB = Z + B2

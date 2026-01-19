@@ -41,3 +41,4 @@ This file tracks the current plan and completion status so work can resume easil
 - Error-norm regression checks added for hydro shock tube + Orszag–Tang (stored references).
 - RMHD primitive recovery stress tests pass with relaxed thresholds; cold/hot regimes remain fragile.
 - RMHD recovery stress test now includes a conservative-variable consistency check to flag ill-conditioned primitives.
+- Added a pressure-based Newton recovery fallback for RMHD (analytic derivative, used when Z solver stalls).
