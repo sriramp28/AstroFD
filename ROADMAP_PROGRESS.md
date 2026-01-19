@@ -42,3 +42,4 @@ This file tracks the current plan and completion status so work can resume easil
 - RMHD primitive recovery stress tests pass with relaxed thresholds; cold/hot regimes remain fragile.
 - RMHD recovery stress test now includes a conservative-variable consistency check to flag ill-conditioned primitives.
 - Added a pressure-based Newton recovery fallback for RMHD (analytic derivative, used when Z solver stalls).
+- RMHD recovery stress tests now default to a relaxed conservative tolerance; cold/magnetized regimes still need solver-side improvements.

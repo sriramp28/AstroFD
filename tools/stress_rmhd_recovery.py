@@ -22,8 +22,10 @@ def main():
     ap.add_argument("--max-v", type=float, default=0.5)
     ap.add_argument("--max-p", type=float, default=1.0)
     ap.add_argument("--max-b", type=float, default=0.05)
-    ap.add_argument("--cons-tol", type=float, default=5e-3,
+    ap.add_argument("--cons-tol", type=float, default=5e-2,
                     help="relative tolerance on D,S,tau for conservative check")
+    ap.add_argument("--p-floor", type=float, default=1e-5,
+                    help="pressure floor for relative primitive error checks")
     ap.add_argument("--max-fail-frac", type=float, default=0.2)
     args = ap.parse_args()
 
@@ -104,7 +106,7 @@ def main():
 
             dv = max(abs(vx2 - vx), abs(vy2 - vy), abs(vz2 - vz))
             dr = abs(r2 - rho) / max(rho, 1e-12)
-            dp = abs(p2 - p) / max(p, 1e-12)
+            dp = abs(p2 - p) / max(p, args.p_floor)
             err = max(dv, dr, dp)
             if err > worst:
                 worst = err

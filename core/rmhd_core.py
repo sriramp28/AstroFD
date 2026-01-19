@@ -319,6 +319,32 @@ def _cons_to_prim_rmhd_impl(D, Sx, Sy, Sz, tau, Bx, By, Bz, psi):
     Z0 = max(rho0*h0*W0*W0, SMALL)
     Z1 = max(D + tau + B2, SMALL)
 
+    # Try pressure-based recovery first in cold/magnetized regimes.
+    sigma = B2 / max(D, SMALL)
+    if p0 < 1e-6 or sigma > 1.0:
+        okp, Zp, Wp, pp = _pressure_newton_recovery(D, Sx, Sy, Sz, tau, Bx, By, Bz, p0, W0)
+        if okp:
+            status |= 2
+            Z = Zp
+            W = Wp
+            rho = D / max(W, SMALL)
+            p = pp
+            ZpB = Z + B2
+            vb = SB / max(Z, SMALL)
+            vx = (Sx + vb*Bx) / max(ZpB, SMALL)
+            vy = (Sy + vb*By) / max(ZpB, SMALL)
+            vz = (Sz + vb*Bz) / max(ZpB, SMALL)
+            v2 = vx*vx + vy*vy + vz*vz
+            vmax2 = V_MAX*V_MAX
+            if v2 >= vmax2:
+                status |= 4
+                fac = V_MAX / np.sqrt(v2 + 1e-32)
+                vx *= fac; vy *= fac; vz *= fac
+            rho, vx, vy, vz, p, Bx, By, Bz, psi = floor_prim_rmhd(
+                rho, vx, vy, vz, p, Bx, By, Bz, psi
+            )
+            return rho, vx, vy, vz, p, Bx, By, Bz, psi, status
+
     ok = False
     Z = Z0
     for attempt in range(2):
