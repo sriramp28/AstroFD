@@ -147,6 +147,12 @@ Skip MPI restart checks (useful in restricted MPI environments):
 python tools/run_validation_suite.py --skip-restart-mpi
 ```
 
+If MPI can not bind sockets on your system, pass extra mpiexec flags:
+
+```bash
+ASTROFD_MPIEXEC_ARGS="--mca btl ^tcp" python tools/validate_restart_mpi.py
+```
+
 Baseline regression checks (small hydro + RMHD cases):
 
 ```bash

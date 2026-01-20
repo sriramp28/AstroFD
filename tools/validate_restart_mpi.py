@@ -3,6 +3,7 @@ import argparse
 import glob
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -43,6 +44,11 @@ def main():
     ap.add_argument("--python", default="python")
     ap.add_argument("--mpiexec", default="mpiexec")
     ap.add_argument("--np", type=int, default=2)
+    ap.add_argument(
+        "--mpi-args",
+        default=os.environ.get("ASTROFD_MPIEXEC_ARGS", ""),
+        help="extra mpiexec arguments (or set ASTROFD_MPIEXEC_ARGS)",
+    )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -57,8 +63,10 @@ def main():
     with open(tmp_run, "w") as f:
         json.dump(cfg_run, f, indent=2)
 
+    mpi_args = shlex.split(args.mpi_args)
+
     cmd1 = [
-        args.mpiexec, "-n", str(args.np),
+        args.mpiexec, *mpi_args, "-n", str(args.np),
         args.python, "solvers/srhd3d_mpi_muscl.py",
         "--config", tmp_run,
         "--t-end", "0.0001",
@@ -75,7 +83,7 @@ def main():
         if proc.returncode != 0:
             raise SystemExit(proc.returncode)
 
-    run_dir = latest_run_dir()
+    run_dir = "<latest-run-dir>" if args.dry_run else latest_run_dir()
     if run_dir is None:
         raise SystemExit("[restart-mpi] no run directory after first run")
 
@@ -87,7 +95,7 @@ def main():
         json.dump(cfg_restart, f, indent=2)
 
     cmd2 = [
-        args.mpiexec, "-n", str(args.np),
+        args.mpiexec, *mpi_args, "-n", str(args.np),
         args.python, "solvers/srhd3d_mpi_muscl.py",
         "--config", tmp_restart,
         "--t-end", "0.0002",
@@ -102,7 +110,7 @@ def main():
         if proc.returncode != 0:
             raise SystemExit(proc.returncode)
 
-    run_dir = latest_run_dir()
+    run_dir = "<latest-run-dir>" if args.dry_run else latest_run_dir()
     if run_dir:
         cmd3.extend(["--run-dir", run_dir])
     for label, cmd in [("verify", cmd3)]:
@@ -112,6 +120,15 @@ def main():
         proc = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         if proc.returncode != 0:
             raise SystemExit(proc.returncode)
+
+    if args.dry_run:
+        for path in (tmp_run, tmp_restart):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+        print("[restart-mpi] dry-run complete")
+        return
 
     if not has_checkpoint_step(run_dir, 2, args.np):
         raise SystemExit("[restart-mpi] missing checkpoint at step >= 2 on all ranks")
